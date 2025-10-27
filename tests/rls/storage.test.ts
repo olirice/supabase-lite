@@ -9,6 +9,7 @@ import { describe, test, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { SqliteRLSProvider } from '../../src/rls/storage.js';
 import type { RLSPolicy } from '../../src/rls/types.js';
+import { policy } from '../../src/rls/policy-builder.js';
 
 describe('RLS Storage Provider', () => {
   let db: Database.Database;
@@ -53,18 +54,18 @@ describe('RLS Storage Provider', () => {
     });
 
     test('Policy name and table name combination is unique', async () => {
-      const policy: RLSPolicy = {
+      const testPolicy: RLSPolicy = {
         name: 'test_policy',
         tableName: 'users',
         command: 'SELECT',
         role: 'authenticated',
-        using: 'true',
+        using: policy.alwaysAllow(),
       };
 
-      await rlsProvider.createPolicy(policy);
+      await rlsProvider.createPolicy(testPolicy);
 
       // Attempt to create duplicate policy
-      await expect(rlsProvider.createPolicy(policy)).rejects.toThrow();
+      await expect(rlsProvider.createPolicy(testPolicy)).rejects.toThrow();
     });
   });
 
@@ -114,51 +115,51 @@ describe('RLS Storage Provider', () => {
 
   describe('Create policy', () => {
     test('Stores a basic SELECT policy', async () => {
-      const policy: RLSPolicy = {
+      const selectOwnPolicy: RLSPolicy = {
         name: 'select_own_posts',
         tableName: 'posts',
         command: 'SELECT',
         role: 'authenticated',
-        using: 'user_id = auth.uid()',
+        using: policy.eq('user_id', policy.authUid()),
       };
 
-      await rlsProvider.createPolicy(policy);
+      await rlsProvider.createPolicy(selectOwnPolicy);
 
       const policies = await rlsProvider.getPolicies('posts');
       expect(policies).toHaveLength(1);
-      expect(policies[0]).toMatchObject(policy);
+      expect(policies[0]).toMatchObject(selectOwnPolicy);
     });
 
     test('Stores INSERT policy with WITH CHECK', async () => {
-      const policy: RLSPolicy = {
+      const insertOwnPolicy: RLSPolicy = {
         name: 'insert_own_posts',
         tableName: 'posts',
         command: 'INSERT',
         role: 'authenticated',
-        withCheck: 'user_id = auth.uid()',
+        withCheck: policy.eq('user_id', policy.authUid()),
       };
 
-      await rlsProvider.createPolicy(policy);
+      await rlsProvider.createPolicy(insertOwnPolicy);
 
       const policies = await rlsProvider.getPolicies('posts');
-      expect(policies[0]?.withCheck).toBe('user_id = auth.uid()');
+      expect(policies[0]?.withCheck).toEqual(policy.eq('user_id', policy.authUid()));
     });
 
     test('Stores UPDATE policy with both USING and WITH CHECK', async () => {
-      const policy: RLSPolicy = {
+      const updateOwnPolicy: RLSPolicy = {
         name: 'update_own_posts',
         tableName: 'posts',
         command: 'UPDATE',
         role: 'authenticated',
-        using: 'user_id = auth.uid()',
-        withCheck: 'user_id = auth.uid()',
+        using: policy.eq('user_id', policy.authUid()),
+        withCheck: policy.eq('user_id', policy.authUid()),
       };
 
-      await rlsProvider.createPolicy(policy);
+      await rlsProvider.createPolicy(updateOwnPolicy);
 
       const policies = await rlsProvider.getPolicies('posts');
-      expect(policies[0]?.using).toBe('user_id = auth.uid()');
-      expect(policies[0]?.withCheck).toBe('user_id = auth.uid()');
+      expect(policies[0]?.using).toEqual(policy.eq('user_id', policy.authUid()));
+      expect(policies[0]?.withCheck).toEqual(policy.eq('user_id', policy.authUid()));
     });
 
     test('Stores multiple policies for same table', async () => {
@@ -167,7 +168,7 @@ describe('RLS Storage Provider', () => {
         tableName: 'posts',
         command: 'SELECT',
         role: 'authenticated',
-        using: 'true',
+        using: policy.alwaysAllow(),
       };
 
       const insertPolicy: RLSPolicy = {
@@ -175,7 +176,7 @@ describe('RLS Storage Provider', () => {
         tableName: 'posts',
         command: 'INSERT',
         role: 'authenticated',
-        withCheck: 'true',
+        withCheck: policy.alwaysAllow(),
       };
 
       await rlsProvider.createPolicy(selectPolicy);
@@ -191,7 +192,7 @@ describe('RLS Storage Provider', () => {
         tableName: 'users',
         command: 'SELECT',
         role: 'authenticated',
-        using: 'true',
+        using: policy.alwaysAllow(),
       };
 
       const postsPolicy: RLSPolicy = {
@@ -199,7 +200,7 @@ describe('RLS Storage Provider', () => {
         tableName: 'posts',
         command: 'SELECT',
         role: 'authenticated',
-        using: 'true',
+        using: policy.alwaysAllow(),
       };
 
       await rlsProvider.createPolicy(usersPolicy);
@@ -210,17 +211,17 @@ describe('RLS Storage Provider', () => {
     });
 
     test('Rejects duplicate policy name on same table', async () => {
-      const policy: RLSPolicy = {
+      const duplicatePolicy: RLSPolicy = {
         name: 'duplicate',
         tableName: 'posts',
         command: 'SELECT',
         role: 'authenticated',
-        using: 'true',
+        using: policy.alwaysAllow(),
       };
 
-      await rlsProvider.createPolicy(policy);
+      await rlsProvider.createPolicy(duplicatePolicy);
 
-      await expect(rlsProvider.createPolicy(policy)).rejects.toThrow();
+      await expect(rlsProvider.createPolicy(duplicatePolicy)).rejects.toThrow();
     });
 
     test('Allows same policy name on different tables', async () => {
@@ -229,7 +230,7 @@ describe('RLS Storage Provider', () => {
         tableName: 'users',
         command: 'SELECT',
         role: 'authenticated',
-        using: 'id = auth.uid()',
+        using: policy.eq('id', policy.authUid()),
       };
 
       const postsPolicy: RLSPolicy = {
@@ -237,7 +238,7 @@ describe('RLS Storage Provider', () => {
         tableName: 'posts',
         command: 'SELECT',
         role: 'authenticated',
-        using: 'user_id = auth.uid()',
+        using: policy.eq('user_id', policy.authUid()),
       };
 
       await expect(rlsProvider.createPolicy(usersPolicy)).resolves.not.toThrow();
@@ -253,7 +254,7 @@ describe('RLS Storage Provider', () => {
         tableName: 'posts',
         command: 'SELECT',
         role: 'authenticated',
-        using: 'user_id = auth.uid()',
+        using: policy.eq('user_id', policy.authUid()),
       });
 
       await rlsProvider.createPolicy({
@@ -261,7 +262,7 @@ describe('RLS Storage Provider', () => {
         tableName: 'posts',
         command: 'INSERT',
         role: 'authenticated',
-        withCheck: 'user_id = auth.uid()',
+        withCheck: policy.eq('user_id', policy.authUid()),
       });
 
       await rlsProvider.createPolicy({
@@ -269,7 +270,7 @@ describe('RLS Storage Provider', () => {
         tableName: 'posts',
         command: 'SELECT',
         role: 'anon',
-        using: 'published = true',
+        using: policy.eq('published', true),
       });
     });
 
@@ -301,7 +302,7 @@ describe('RLS Storage Provider', () => {
         tableName: 'posts',
         command: 'ALL',
         role: 'authenticated',
-        using: 'true',
+        using: policy.alwaysAllow(),
       });
 
       const selectPolicies = await rlsProvider.getPoliciesForCommand(
@@ -321,7 +322,7 @@ describe('RLS Storage Provider', () => {
         tableName: 'posts',
         command: 'SELECT',
         role: 'PUBLIC',
-        using: 'published = true',
+        using: policy.eq('published', true),
       });
 
       const anonPolicies = await rlsProvider.getPoliciesForCommand('posts', 'SELECT', 'anon');
@@ -344,7 +345,7 @@ describe('RLS Storage Provider', () => {
         tableName: 'posts',
         command: 'SELECT',
         role: 'authenticated',
-        using: 'true',
+        using: policy.alwaysAllow(),
       });
     });
 
@@ -366,7 +367,7 @@ describe('RLS Storage Provider', () => {
         tableName: 'users',
         command: 'SELECT',
         role: 'authenticated',
-        using: 'true',
+        using: policy.alwaysAllow(),
       });
 
       await rlsProvider.dropPolicy('posts', 'test_policy');

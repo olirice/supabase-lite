@@ -32,24 +32,24 @@ export function authContextMiddleware(
     // Try to extract JWT from headers
     let token: string | null = null;
 
-    // Check apikey header
-    const apikeyHeader = request.headers.get('apikey');
-    if (apikeyHeader) {
-      token = apikeyHeader;
+    // Check Authorization header FIRST (user token after login)
+    const authHeader = request.headers.get('authorization');
+    if (authHeader) {
+      // Try to extract from "Bearer <token>" format
+      const match = /^Bearer\s+(.+)$/i.exec(authHeader);
+      if (match) {
+        token = match[1];
+      } else {
+        // If no Bearer prefix, treat entire header as token
+        token = authHeader;
+      }
     }
 
-    // Check Authorization header if no apikey
+    // Fall back to apikey header if no Authorization (anonymous/initial requests)
     if (!token) {
-      const authHeader = request.headers.get('authorization');
-      if (authHeader) {
-        // Try to extract from "Bearer <token>" format
-        const match = /^Bearer\s+(.+)$/i.exec(authHeader);
-        if (match) {
-          token = match[1];
-        } else {
-          // If no Bearer prefix, treat entire header as token
-          token = authHeader;
-        }
+      const apikeyHeader = request.headers.get('apikey');
+      if (apikeyHeader) {
+        token = apikeyHeader;
       }
     }
 

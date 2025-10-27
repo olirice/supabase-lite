@@ -3,7 +3,11 @@
  *
  * Provides type-safe interfaces for RLS policy management and enforcement.
  * Emulates PostgreSQL RLS for SQLite databases.
+ *
+ * Uses structured WhereNode AST for policy definitions instead of SQL strings.
  */
+
+import type { WhereNode } from '../parser/types.js';
 
 /**
  * Policy command type (determines when policy applies)
@@ -17,6 +21,9 @@ export type PolicyRole = 'anon' | 'authenticated' | 'PUBLIC';
 
 /**
  * RLS Policy Definition
+ *
+ * Policies use structured WhereNode AST instead of SQL strings.
+ * Build policies using the policy builder helpers from policy-builder.ts
  */
 export interface RLSPolicy {
   /** Unique policy name */
@@ -31,11 +38,11 @@ export interface RLSPolicy {
   /** Role the policy applies to */
   readonly role: PolicyRole;
 
-  /** USING expression (for SELECT/DELETE) */
-  readonly using?: string;
+  /** USING expression (for SELECT/DELETE) - structured AST */
+  readonly using?: WhereNode;
 
-  /** WITH CHECK expression (for INSERT/UPDATE) */
-  readonly withCheck?: string;
+  /** WITH CHECK expression (for INSERT/UPDATE) - structured AST */
+  readonly withCheck?: WhereNode;
 
   /** Whether the policy is permissive (default) or restrictive */
   readonly restrictive?: boolean;

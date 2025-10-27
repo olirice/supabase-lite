@@ -13,6 +13,7 @@ import { QueryParser } from '../../src/parser/index.js';
 import { SQLCompiler } from '../../src/compiler/index.js';
 import { SchemaIntrospector } from '../../src/schema/index.js';
 import type { RequestContext } from '../../src/auth/types.js';
+import { policy } from '../../src/rls/policy-builder.js';
 
 describe('RLS AST Enforcer', () => {
   let db: Database.Database;
@@ -81,7 +82,7 @@ describe('RLS AST Enforcer', () => {
         tableName: 'posts',
         command: 'SELECT',
         role: 'anon',
-        using: 'published = 1',
+        using: policy.eq('published', 1),
       });
 
       const url = 'http://localhost/posts';
@@ -100,7 +101,7 @@ describe('RLS AST Enforcer', () => {
         tableName: 'posts',
         command: 'SELECT',
         role: 'anon',
-        using: 'published = 1',
+        using: policy.eq('published', 1),
       });
 
       const url = 'http://localhost/posts?title=eq.Test';
@@ -124,14 +125,14 @@ describe('RLS AST Enforcer', () => {
         tableName: 'posts',
         command: 'SELECT',
         role: 'anon',
-        using: 'published = 1',
+        using: policy.eq('published', 1),
       });
       await rlsProvider.createPolicy({
         name: 'featured_posts',
         tableName: 'posts',
         command: 'SELECT',
         role: 'anon',
-        using: 'featured = 1',
+        using: policy.eq('featured', 1),
       });
 
       // Add featured column
@@ -155,7 +156,7 @@ describe('RLS AST Enforcer', () => {
         tableName: 'posts',
         command: 'SELECT',
         role: 'PUBLIC',
-        using: 'deleted = 0',
+        using: policy.eq('deleted', 0),
       });
 
       // Add deleted column
@@ -180,7 +181,7 @@ describe('RLS AST Enforcer', () => {
         tableName: 'posts',
         command: 'SELECT',
         role: 'authenticated',
-        using: 'user_id = auth.uid()',
+        using: policy.eq('user_id', policy.authUid()),
       });
 
       const url = 'http://localhost/posts';
@@ -199,7 +200,10 @@ describe('RLS AST Enforcer', () => {
         tableName: 'posts',
         command: 'SELECT',
         role: 'anon',
-        using: 'user_id = auth.uid() OR published = 1',
+        using: policy.or(
+          policy.eq('user_id', policy.authUid()),
+          policy.eq('published', 1)
+        ),
       });
 
       const url = 'http://localhost/posts';
@@ -221,7 +225,7 @@ describe('RLS AST Enforcer', () => {
         tableName: 'posts',
         command: 'INSERT',
         role: 'authenticated',
-        withCheck: 'user_id = auth.uid()',
+        withCheck: policy.eq('user_id', policy.authUid()),
       });
 
       const context: RequestContext = { role: 'authenticated', uid: 'user-123' };
@@ -277,7 +281,7 @@ describe('RLS AST Enforcer', () => {
         tableName: 'posts',
         command: 'INSERT',
         role: 'authenticated',
-        withCheck: 'user_id = auth.uid()',
+        withCheck: policy.eq('user_id', policy.authUid()),
       });
 
       const context: RequestContext = { role: 'authenticated', uid: 'user-123' };
@@ -295,7 +299,7 @@ describe('RLS AST Enforcer', () => {
         tableName: 'posts',
         command: 'INSERT',
         role: 'authenticated',
-        withCheck: 'user_id = auth.uid()',
+        withCheck: policy.eq('user_id', policy.authUid()),
       });
 
       // Insert a row without retrieving the ID
@@ -361,7 +365,7 @@ describe('RLS AST Enforcer', () => {
         tableName: 'posts',
         command: 'INSERT',
         role: 'authenticated',
-        withCheck: 'user_id = auth.uid()',
+        withCheck: policy.eq('user_id', policy.authUid()),
       });
 
       // Insert test rows

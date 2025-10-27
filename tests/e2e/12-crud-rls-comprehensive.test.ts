@@ -17,6 +17,7 @@ import { SqliteRLSProvider } from '../../src/rls/storage.js';
 import { serve } from '@hono/node-server';
 import type { Server } from 'http';
 import { createTestAnonKey, TEST_JWT_SECRET } from '../helpers/jwt.js';
+import { policy } from '../../src/rls/policy-builder.js';
 
 describe('E2E - Comprehensive CRUD + RLS Tests', () => {
   let db: Database.Database;
@@ -59,7 +60,7 @@ describe('E2E - Comprehensive CRUD + RLS Tests', () => {
       tableName: 'posts',
       command: 'SELECT',
       role: 'anon',
-      using: 'published = 1',
+      using: policy.eq('published', 1),
     });
 
     // 2. INSERT: can create posts (but they'll be unpublished by default)
@@ -68,7 +69,7 @@ describe('E2E - Comprehensive CRUD + RLS Tests', () => {
       tableName: 'posts',
       command: 'INSERT',
       role: 'anon',
-      withCheck: '1=1', // Allow all inserts
+      withCheck: policy.alwaysAllow(), // Allow all inserts
     });
 
     // 3. UPDATE: deny (no policy created)
@@ -81,7 +82,10 @@ describe('E2E - Comprehensive CRUD + RLS Tests', () => {
       tableName: 'posts',
       command: 'SELECT',
       role: 'authenticated',
-      using: 'user_id = auth.uid() OR published = 1',
+      using: policy.or(
+        policy.eq('user_id', policy.authUid()),
+        policy.eq('published', 1)
+      ),
     });
 
     // 2. INSERT: can create posts but must set user_id to own ID
@@ -90,7 +94,7 @@ describe('E2E - Comprehensive CRUD + RLS Tests', () => {
       tableName: 'posts',
       command: 'INSERT',
       role: 'authenticated',
-      withCheck: 'user_id = auth.uid()',
+      withCheck: policy.eq('user_id', policy.authUid()),
     });
 
     // 3. UPDATE: can update own posts
@@ -99,7 +103,7 @@ describe('E2E - Comprehensive CRUD + RLS Tests', () => {
       tableName: 'posts',
       command: 'UPDATE',
       role: 'authenticated',
-      using: 'user_id = auth.uid()',
+      using: policy.eq('user_id', policy.authUid()),
     });
 
     // 4. DELETE: can delete own posts
@@ -108,7 +112,7 @@ describe('E2E - Comprehensive CRUD + RLS Tests', () => {
       tableName: 'posts',
       command: 'DELETE',
       role: 'authenticated',
-      using: 'user_id = auth.uid()',
+      using: policy.eq('user_id', policy.authUid()),
     });
 
     // Create Hono app

@@ -11,10 +11,12 @@ import { createServer } from '../../src/api/server.js';
 import { SqliteAdapter } from '../../src/database/sqlite-adapter.js';
 import { SqliteRLSProvider } from '../../src/rls/storage.js';
 import { createTestAnonKey, TEST_JWT_SECRET } from '../helpers/jwt.js';
+import { policy } from '../../src/rls/policy-builder.js';
 
 describe('E2E - Server Auth + RLS Integration', () => {
   let db: Database.Database;
   let adapter: SqliteAdapter;
+  let rlsProvider: SqliteRLSProvider;
 
   beforeEach(() => {
     db = new Database(':memory:');
@@ -43,7 +45,7 @@ describe('E2E - Server Auth + RLS Integration', () => {
 
     // Initialize RLS provider to create system tables
     // This ensures _rls_enabled_tables and _rls_policies tables exist
-    new SqliteRLSProvider(db);
+    rlsProvider = new SqliteRLSProvider(db);
   });
 
   describe('Server configuration', () => {
@@ -371,11 +373,14 @@ describe('E2E - Server Auth + RLS Integration', () => {
   describe('RLS enforcement', () => {
     test('Enforces RLS policies when enabled', async () => {
       // Enable RLS on posts table
-      db.exec(`
-        INSERT INTO _rls_enabled_tables (table_name) VALUES ('posts');
-        INSERT INTO _rls_policies (name, table_name, command, role, using_expr)
-        VALUES ('anon_published', 'posts', 'SELECT', 'anon', 'published = 1');
-      `);
+      await rlsProvider.enableRLS('posts');
+      await rlsProvider.createPolicy({
+        name: 'anon_published',
+        tableName: 'posts',
+        command: 'SELECT',
+        role: 'anon',
+        using: policy.eq('published', 1),
+      });
 
       const app = createServer({
         db: adapter,
@@ -404,11 +409,14 @@ describe('E2E - Server Auth + RLS Integration', () => {
 
     test('Does not enforce RLS when disabled', async () => {
       // Enable RLS on posts table
-      db.exec(`
-        INSERT INTO _rls_enabled_tables (table_name) VALUES ('posts');
-        INSERT INTO _rls_policies (name, table_name, command, role, using_expr)
-        VALUES ('anon_published', 'posts', 'SELECT', 'anon', 'published = 1');
-      `);
+      await rlsProvider.enableRLS('posts');
+      await rlsProvider.createPolicy({
+        name: 'anon_published',
+        tableName: 'posts',
+        command: 'SELECT',
+        role: 'anon',
+        using: policy.eq('published', 1),
+      });
 
       const app = createServer({
         db: adapter,
@@ -479,11 +487,17 @@ describe('E2E - Server Auth + RLS Integration', () => {
       db.prepare('UPDATE posts SET user_id = ? WHERE user_id = ?').run(userId, 'user-1');
 
       // Enable RLS with auth policy
-      db.exec(`
-        INSERT INTO _rls_enabled_tables (table_name) VALUES ('posts');
-        INSERT INTO _rls_policies (name, table_name, command, role, using_expr)
-        VALUES ('auth_own_or_published', 'posts', 'SELECT', 'authenticated', 'user_id = auth.uid() OR published = 1');
-      `);
+      await rlsProvider.enableRLS('posts');
+      await rlsProvider.createPolicy({
+        name: 'auth_own_or_published',
+        tableName: 'posts',
+        command: 'SELECT',
+        role: 'authenticated',
+        using: policy.or(
+          policy.eq('user_id', policy.authUid()),
+          policy.eq('published', 1)
+        ),
+      });
 
       // Make authenticated request
       const res = await app.request('/posts?select=id,title', {

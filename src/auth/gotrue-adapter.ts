@@ -133,12 +133,16 @@ export function mountGoTrueRoutes(
    *
    * Body: { email: string, password: string }
    * Response: GoTrueSession
+   *
+   * Note: Modern Supabase clients may call this without grant_type query param
    */
   app.post(`${basePath}/token`, async (c: Context) => {
     try {
       const grantType = c.req.query('grant_type');
 
-      if (grantType !== 'password') {
+      // Modern Supabase clients don't send grant_type for password auth
+      // If grant_type is provided and it's not 'password', reject it
+      if (grantType && grantType !== 'password') {
         return c.json(
           {
             error: 'unsupported_grant_type',

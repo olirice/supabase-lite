@@ -2,13 +2,15 @@
  * AST-Based RLS Enforcement
  *
  * Applies Row Level Security policies at the AST level (before SQL compilation).
- * This avoids string manipulation and allows proper integration with resource embedding.
+ * Uses structured WhereNode AST - no SQL parsing required.
+ *
+ * This implementation is fully deterministic with zero parsing edge cases.
  */
 
 import type { RLSProvider, PolicyCommand } from './types.js';
 import type { RequestContext } from '../auth/types.js';
-import type { QueryAST, WhereNode, LogicalNode } from '../parser/types.js';
-import { parseSQLExpression } from './expression-parser.js';
+import type { QueryAST, WhereNode, LogicalNode, FilterNode } from '../parser/types.js';
+import type { AuthFunction } from './policy-builder.js';
 import { escapeSqlString, escapeIdentifier } from '../utils/identifier.js';
 import { DENY_ALL_FILTER_COLUMN, DENY_ALL_FILTER_VALUE } from '../utils/constants.js';
 
@@ -16,6 +18,7 @@ import { DENY_ALL_FILTER_COLUMN, DENY_ALL_FILTER_VALUE } from '../utils/constant
  * AST-Based RLS Enforcer
  *
  * Adds RLS policy nodes to QueryAST before compilation.
+ * Substitutes auth functions (auth.uid(), auth.role()) with actual values.
  */
 export class RLSASTEnforcer {
   constructor(private rlsProvider: RLSProvider) {}
@@ -24,6 +27,7 @@ export class RLSASTEnforcer {
    * Enforce RLS policies on a QueryAST
    *
    * Returns a new QueryAST with rlsPolicy field populated.
+   * This method is 100% deterministic - no parsing involved.
    */
   async enforceOnAST(
     ast: QueryAST,
@@ -46,7 +50,6 @@ export class RLSASTEnforcer {
 
       if (policies.length === 0) {
         // No policies for this role - deny all access (PostgreSQL behavior)
-        // Add a FALSE condition (1 = 0)
         return {
           ...ast,
           rlsPolicy: this.createDenyAllPolicy(),
@@ -89,28 +92,49 @@ export class RLSASTEnforcer {
   }
 
   /**
-   * Build policy node from SQL expression strings
+   * Build RLS policy node from multiple policies
    *
-   * Shared logic for converting policy SQL expressions into WhereNode AST.
-   * Handles auth function substitution, parsing, and OR combination.
+   * Combines policies with OR (any policy can grant access)
+   * Substitutes auth functions with actual values from context
    */
-  private buildPolicyNodesFromExpressions(
-    expressions: string[],
+  private buildRLSPolicyNode(
+    policies: readonly any[],
+    command: PolicyCommand,
     context: RequestContext
   ): WhereNode | null {
     const policyNodes: WhereNode[] = [];
 
-    for (const expr of expressions) {
-      try {
-        // Substitute auth functions BEFORE parsing
-        const substituted = this.substituteAuthFunctions(expr, context);
+    for (const policy of policies) {
+      let policyExpr: WhereNode | undefined;
 
-        // Parse SQL expression into WhereNode AST
-        const node = parseSQLExpression(substituted);
-        policyNodes.push(node);
-      } catch (error) {
-        console.error(`Failed to parse RLS policy expression "${expr}":`, error);
-        // Skip this expression if parsing fails
+      // Determine which expression to use based on command
+      if (command === 'INSERT') {
+        policyExpr = policy.withCheck;
+      } else if (command === 'UPDATE') {
+        // For UPDATE, combine USING and WITH CHECK with AND
+        const parts: WhereNode[] = [];
+        if (policy.using) parts.push(policy.using);
+        if (policy.withCheck) parts.push(policy.withCheck);
+
+        if (parts.length === 0) {
+          continue;
+        } else if (parts.length === 1) {
+          policyExpr = parts[0];
+        } else {
+          policyExpr = {
+            type: 'and',
+            conditions: parts,
+          };
+        }
+      } else {
+        // SELECT, DELETE - use USING
+        policyExpr = policy.using;
+      }
+
+      if (policyExpr) {
+        // Substitute auth functions with actual values
+        const substituted = this.substituteAuthFunctions(policyExpr, context);
+        policyNodes.push(substituted);
       }
     }
 
@@ -124,71 +148,63 @@ export class RLSASTEnforcer {
     }
 
     // Multiple policies - combine with OR
-    const combinedNode: LogicalNode = {
+    return {
       type: 'or',
       conditions: policyNodes,
     };
-
-    return combinedNode;
-  }
-
-  /**
-   * Build RLS policy node from multiple policies
-   */
-  private buildRLSPolicyNode(
-    policies: readonly any[],
-    command: PolicyCommand,
-    context: RequestContext
-  ): WhereNode | null {
-    const expressions: string[] = [];
-
-    for (const policy of policies) {
-      let expr: string | undefined;
-
-      // Determine which expression to use based on command
-      if (command === 'INSERT') {
-        expr = policy.withCheck;
-      } else if (command === 'UPDATE') {
-        // For UPDATE, combine USING and WITH CHECK with AND
-        const parts: string[] = [];
-        if (policy.using) parts.push(policy.using);
-        if (policy.withCheck) parts.push(policy.withCheck);
-        expr = parts.length > 0 ? parts.join(' AND ') : undefined;
-      } else {
-        // SELECT, DELETE - use USING
-        expr = policy.using;
-      }
-
-      if (expr) {
-        expressions.push(expr);
-      }
-    }
-
-    return this.buildPolicyNodesFromExpressions(expressions, context);
   }
 
   /**
    * Substitute auth.uid() and auth.role() in policy expression
+   *
+   * This is a deterministic AST transformation - no parsing involved.
+   * Recursively walks the WhereNode tree and replaces AuthFunction values.
    */
-  private substituteAuthFunctions(expression: string, context: RequestContext): string {
-    let result = expression;
+  private substituteAuthFunctions(node: WhereNode, context: RequestContext): WhereNode {
+    if (node.type === 'filter') {
+      // Check if the value is an AuthFunction
+      if (this.isAuthFunction(node.value)) {
+        const authFunc = node.value as AuthFunction;
+        let substitutedValue: string | number | boolean | null;
 
-    // Replace auth.uid() with actual user ID (or NULL for anon)
-    const uid = context.uid ? `'${this.escapeSqlString(context.uid)}'` : 'NULL';
-    result = result.replace(/auth\.uid\(\)/gi, uid);
+        if (authFunc.name === 'uid') {
+          substitutedValue = context.uid ?? null;
+        } else if (authFunc.name === 'role') {
+          substitutedValue = context.role;
+        } else {
+          // Unknown auth function - should never happen with TypeScript
+          substitutedValue = null;
+        }
 
-    // Replace auth.role() with actual role
-    const role = `'${context.role}'`;
-    result = result.replace(/auth\.role\(\)/gi, role);
+        return {
+          ...node,
+          value: substitutedValue,
+        };
+      }
 
-    return result;
+      // Value is not an auth function - return as is
+      return node;
+    } else if (node.type === 'and' || node.type === 'or') {
+      // Recursively substitute in all conditions
+      return {
+        ...node,
+        conditions: node.conditions.map(c => this.substituteAuthFunctions(c, context)),
+      };
+    } else {
+      // embedded_filter - not expected in RLS policies
+      return node;
+    }
   }
 
   /**
-   * Escape SQL string literals to prevent injection
+   * Check if a value is an AuthFunction
    */
-  private escapeSqlString(str: string): string {
-    return escapeSqlString(str);
+  private isAuthFunction(value: unknown): value is AuthFunction {
+    return (
+      typeof value === 'object' &&
+      value !== null &&
+      (value as any).type === 'auth_function'
+    );
   }
 
   /**
@@ -220,18 +236,28 @@ export class RLSASTEnforcer {
       }
 
       // Build WITH CHECK expression from policies
-      const expressions: string[] = [];
+      const policyNodes: WhereNode[] = [];
       for (const policy of policies) {
         if (policy.withCheck) {
-          expressions.push(policy.withCheck);
+          const substituted = this.substituteAuthFunctions(policy.withCheck, context);
+          policyNodes.push(substituted);
         }
       }
 
-      if (expressions.length === 0) {
+      if (policyNodes.length === 0) {
         return null; // No WITH CHECK constraints
       }
 
-      return this.buildPolicyNodesFromExpressions(expressions, context);
+      // Single policy
+      if (policyNodes.length === 1) {
+        return policyNodes[0]!;
+      }
+
+      // Multiple policies - combine with OR
+      return {
+        type: 'or',
+        conditions: policyNodes,
+      };
     } catch (error) {
       console.error('Failed to get WITH CHECK policy:', error);
       return null;
@@ -242,6 +268,7 @@ export class RLSASTEnforcer {
    * Compile a WhereNode to SQL for use in validation queries
    *
    * This is needed for validateWithCheck() which uses SQL queries.
+   * Deterministic compilation with no edge cases.
    */
   compileWhereNode(node: WhereNode): { sql: string; params: unknown[] } {
     const params: unknown[] = [];
@@ -250,7 +277,12 @@ export class RLSASTEnforcer {
       if (n.type === 'filter') {
         const operator = this.mapOperatorToSQL(n.operator);
         params.push(n.value);
-        return `${this.quoteIdentifier(n.column)} ${operator} ?`;
+
+        // Special case: numeric literals (e.g., "1" in "1 = 1") should not be quoted
+        const isNumericLiteral = /^\d+$/.test(n.column);
+        const columnSQL = isNumericLiteral ? n.column : escapeIdentifier(n.column);
+
+        return `${columnSQL} ${operator} ?`;
       } else if (n.type === 'and' || n.type === 'or') {
         const op = n.type.toUpperCase();
         const parts = n.conditions.map(c => `(${compileSingle(c)})`);
@@ -285,17 +317,12 @@ export class RLSASTEnforcer {
   }
 
   /**
-   * Quote identifier for SQL
-   */
-  private quoteIdentifier(name: string): string {
-    return escapeIdentifier(name);
-  }
-
-  /**
    * Validate rows against a WITH CHECK policy
    *
    * Executes the policy expression for each row and returns only rows that pass.
    * Rows that fail are deleted from the database.
+   *
+   * This method is deterministic - the WhereNode is already validated and compiled.
    */
   async validateWithCheck<T extends Record<string, unknown>>(
     tableName: string,

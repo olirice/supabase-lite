@@ -13,6 +13,7 @@ import { SqliteRLSProvider } from '../../src/rls/storage.js';
 import { serve } from '@hono/node-server';
 import type { Server } from 'http';
 import { createTestAnonKey, TEST_JWT_SECRET } from '../helpers/jwt.js';
+import { policy } from '../../src/rls/policy-builder.js';
 
 describe('E2E - HTTP Server with Auth + RLS', () => {
   let db: Database.Database;
@@ -61,14 +62,17 @@ describe('E2E - HTTP Server with Auth + RLS', () => {
       tableName: 'posts',
       command: 'SELECT',
       role: 'anon',
-      using: 'published = 1',
+      using: policy.eq('published', 1),
     });
     await rlsProvider.createPolicy({
       name: 'auth_read_own_or_published',
       tableName: 'posts',
       command: 'SELECT',
       role: 'authenticated',
-      using: 'user_id = auth.uid() OR published = 1',
+      using: policy.or(
+        policy.eq('user_id', policy.authUid()),
+        policy.eq('published', 1)
+      ),
     });
 
     // Enable RLS on comments table
@@ -78,7 +82,7 @@ describe('E2E - HTTP Server with Auth + RLS', () => {
       tableName: 'comments',
       command: 'SELECT',
       role: 'authenticated',
-      using: 'user_id = auth.uid()',
+      using: policy.eq('user_id', policy.authUid()),
     });
 
     // Create Hono app

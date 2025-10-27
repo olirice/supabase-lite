@@ -3,10 +3,13 @@
  *
  * Stores and retrieves RLS policies in SQLite tables.
  * Implements the RLSProvider interface.
+ *
+ * Policies are stored as JSON-serialized WhereNode AST.
  */
 
 import type Database from 'better-sqlite3';
 import type { RLSProvider, RLSPolicy, PolicyCommand, PolicyRole } from './types.js';
+import type { WhereNode } from '../parser/types.js';
 
 /**
  * SQLite-based RLS storage provider
@@ -81,6 +84,8 @@ export class SqliteRLSProvider implements RLSProvider {
 
   /**
    * Create a new RLS policy
+   *
+   * Serializes WhereNode AST to JSON for storage
    */
   async createPolicy(policy: RLSPolicy): Promise<void> {
     try {
@@ -94,8 +99,8 @@ export class SqliteRLSProvider implements RLSProvider {
           policy.tableName,
           policy.command,
           policy.role,
-          policy.using ?? null,
-          policy.withCheck ?? null,
+          policy.using ? JSON.stringify(policy.using) : null,
+          policy.withCheck ? JSON.stringify(policy.withCheck) : null,
           policy.restrictive ? 1 : 0
         );
     } catch (error: any) {
@@ -169,6 +174,8 @@ export class SqliteRLSProvider implements RLSProvider {
 
   /**
    * Convert database row to RLSPolicy
+   *
+   * Deserializes JSON back to WhereNode AST
    */
   private rowToPolicy(row: {
     name: string;
@@ -187,11 +194,11 @@ export class SqliteRLSProvider implements RLSProvider {
     };
 
     if (row.using_expr) {
-      policy.using = row.using_expr;
+      policy.using = JSON.parse(row.using_expr) as WhereNode;
     }
 
     if (row.with_check_expr) {
-      policy.withCheck = row.with_check_expr;
+      policy.withCheck = JSON.parse(row.with_check_expr) as WhereNode;
     }
 
     if (row.restrictive === 1) {

@@ -14,6 +14,7 @@ import { parseRLSStatement } from '../../src/rls/parser.js';
 import { ApiService } from '../../src/api/service.js';
 import { SqliteAdapter } from '../../src/database/sqlite-adapter.js';
 import type { RequestContext } from '../../src/auth/types.js';
+import { policy } from '../../src/rls/policy-builder.js';
 
 describe('Auth + RLS Integration', () => {
   let db: Database.Database;
@@ -82,7 +83,7 @@ describe('Auth + RLS Integration', () => {
         tableName: 'posts',
         command: 'SELECT',
         role: 'anon',
-        using: 'published = 1',
+        using: policy.eq('published', 1),
       });
 
       const context: RequestContext = { role: 'anon' };
@@ -150,7 +151,10 @@ describe('Auth + RLS Integration', () => {
         tableName: 'posts',
         command: 'SELECT',
         role: 'authenticated',
-        using: 'user_id = auth.uid() OR published = 1',
+        using: policy.or(
+          policy.eq('user_id', policy.authUid()),
+          policy.eq('published', 1)
+        ),
       });
 
       // Execute query via ApiService
@@ -191,7 +195,7 @@ describe('Auth + RLS Integration', () => {
         tableName: 'posts',
         command: 'UPDATE',
         role: 'authenticated',
-        using: 'user_id = auth.uid()',
+        using: policy.eq('user_id', policy.authUid()),
       });
 
       // Try to update all posts - should only update own posts
@@ -231,7 +235,7 @@ describe('Auth + RLS Integration', () => {
         tableName: 'comments',
         command: 'DELETE',
         role: 'authenticated',
-        using: 'user_id = auth.uid()',
+        using: policy.eq('user_id', policy.authUid()),
       });
 
       // Try to delete all comments - should only delete own comments
@@ -266,7 +270,7 @@ describe('Auth + RLS Integration', () => {
         tableName: 'posts',
         command: 'SELECT',
         role: 'anon',
-        using: 'published = 1',
+        using: policy.eq('published', 1),
       });
 
       // Policy for authenticated users
@@ -275,7 +279,7 @@ describe('Auth + RLS Integration', () => {
         tableName: 'posts',
         command: 'SELECT',
         role: 'authenticated',
-        using: 'user_id = auth.uid()',
+        using: policy.eq('user_id', policy.authUid()),
       });
 
       // Policy for all roles (PUBLIC)
@@ -284,7 +288,7 @@ describe('Auth + RLS Integration', () => {
         tableName: 'posts',
         command: 'SELECT',
         role: 'PUBLIC',
-        using: 'id > 0', // Simple condition to ensure posts exist
+        using: policy.gt('id', 0), // Simple condition to ensure posts exist
       });
 
       // Test as authenticated user
@@ -386,7 +390,10 @@ describe('Auth + RLS Integration', () => {
         tableName: 'posts',
         command: 'SELECT',
         role: 'authenticated',
-        using: 'user_id = auth.uid() OR published = 1',
+        using: policy.or(
+          policy.eq('user_id', policy.authUid()),
+          policy.eq('published', 1)
+        ),
       });
 
       const context: RequestContext = {
@@ -426,7 +433,10 @@ describe('Auth + RLS Integration', () => {
         tableName: 'posts',
         command: 'SELECT',
         role: 'authenticated',
-        using: 'user_id = auth.uid() OR published = 1',
+        using: policy.or(
+          policy.eq('user_id', policy.authUid()),
+          policy.eq('published', 1)
+        ),
       });
 
       const context: RequestContext = {
@@ -464,7 +474,7 @@ describe('Auth + RLS Integration', () => {
         tableName: 'posts',
         command: 'SELECT',
         role: 'anon',
-        using: 'published = 1',
+        using: policy.eq('published', 1),
       });
 
       const context: RequestContext = { role: 'anon' };
@@ -508,7 +518,7 @@ describe('Auth + RLS Integration', () => {
         tableName: 'posts',
         command: 'SELECT',
         role: 'anon',
-        using: 'published = 1',
+        using: policy.eq('published', 1),
       });
 
       // Execute query with expired session (falls back to anon)
