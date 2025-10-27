@@ -35,6 +35,7 @@ export interface ApiRequest {
 export interface ApiResponse<T = unknown> {
   readonly data: readonly T[];
   readonly count?: number;
+  readonly totalCount?: number; // Total count for pagination (when count=exact is requested)
 }
 
 /**
@@ -52,6 +53,7 @@ export interface ApiError {
 export interface ExecutionOptions {
   readonly rlsEnforcer?: RLSASTEnforcer;
   readonly requestContext?: RequestContext;
+  readonly includeCount?: boolean; // Whether to include total count for pagination
 }
 
 /**
@@ -123,9 +125,16 @@ export class ApiService {
     // Format response
     const data = this.formatResponse(result.rows);
 
+    // Get total count if requested (for pagination with Content-Range header)
+    let totalCount: number | undefined;
+    if (options?.includeCount) {
+      totalCount = await this.getTotalCount(ast, schema, options);
+    }
+
     return {
       data,
       count: data.length,
+      totalCount,
     };
   }
 
@@ -424,6 +433,71 @@ export class ApiService {
     };
 
     return combined;
+  }
+
+  /**
+   * Get total count of rows matching the query (ignoring limit/offset)
+   * Used for Content-Range header in pagination
+   */
+  private async getTotalCount(
+    ast: any,
+    schema: DatabaseSchema,
+    options?: ExecutionOptions
+  ): Promise<number> {
+    // Create a count query by removing limit/offset and select
+    const countAst = {
+      ...ast,
+      select: {
+        columns: [], // Will be replaced with COUNT(*)
+      },
+      limit: undefined,
+      offset: undefined,
+      order: undefined, // Order is irrelevant for count
+    };
+
+    // Compile count query
+    const compiler = new SQLCompiler(schema);
+
+    // Build count SQL manually to ensure it's just COUNT(*)
+    // We need to use the same WHERE clause and JOINs as the main query
+    const whereClause = countAst.where ? compiler.compileWhere(countAst.where) : null;
+
+    // Build base count query
+    let sql = `SELECT COUNT(*) as total FROM ${this.escapeIdentifier(countAst.from)}`;
+
+    // Add JOINs for embedded filters if needed
+    if (whereClause) {
+      const joinClauses = compiler['compileJoinsForEmbeddedFilters'](countAst.where, countAst.from);
+      if (joinClauses.length > 0) {
+        sql += ' ' + joinClauses.join(' ');
+      }
+    }
+
+    // Add WHERE clause
+    if (whereClause) {
+      sql += ` WHERE ${whereClause}`;
+    }
+
+    // Compile using the compiler to get params
+    const compiled = compiler.compile(countAst);
+
+    // Execute count query with proper SQL
+    const countCompiled = {
+      sql,
+      params: compiled.params, // Use same params as main query
+    };
+
+    const stmt = this.config.db.prepare(countCompiled.sql);
+    const result = await stmt.all<{ total: number }>(...countCompiled.params);
+
+    return result.rows[0]?.total ?? 0;
+  }
+
+  /**
+   * Escape SQL identifier (table/column name)
+   */
+  private escapeIdentifier(identifier: string): string {
+    return `"${identifier.replace(/"/g, '""')}"`;
   }
 
   /**

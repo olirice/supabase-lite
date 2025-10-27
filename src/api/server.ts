@@ -245,11 +245,22 @@ export function createServer(config: ServerConfig): Hono<{ Variables: AppVariabl
 
       const queryString = c.req.url.split('?')[1] ?? '';
 
+      // Parse Prefer header for count option
+      const preferHeader = c.req.header('Prefer') ?? '';
+      const includeCount = preferHeader.includes('count=exact') ||
+                          preferHeader.includes('count=planned') ||
+                          preferHeader.includes('count=estimated');
+
       // Build execution options with RLS enforcement if enabled
-      let executionOptions: { rlsEnforcer: RLSASTEnforcer; requestContext?: RequestContext } | undefined;
+      let executionOptions: { rlsEnforcer?: RLSASTEnforcer; requestContext?: RequestContext; includeCount?: boolean } = {};
+
+      if (includeCount) {
+        executionOptions.includeCount = true;
+      }
+
       if (config.rls?.enabled && rlsEnforcer) {
         const ctx = c.get('authContext') as RequestContext | undefined;
-        executionOptions = { rlsEnforcer };
+        executionOptions.rlsEnforcer = rlsEnforcer;
         if (ctx !== undefined) {
           executionOptions.requestContext = ctx;
         }
@@ -263,7 +274,14 @@ export function createServer(config: ServerConfig): Hono<{ Variables: AppVariabl
         executionOptions
       );
 
-      return c.json(response.data);
+      // Add Content-Range header if count was requested
+      const jsonResponse = c.json(response.data);
+      if (includeCount && response.totalCount !== undefined) {
+        const contentRange = buildContentRange(response.data.length, response.totalCount, queryString);
+        jsonResponse.headers.set('Content-Range', contentRange);
+      }
+
+      return jsonResponse;
     } catch (error) {
       return handleError(c, error);
     }
@@ -274,6 +292,70 @@ export function createServer(config: ServerConfig): Hono<{ Variables: AppVariabl
   const getHandler = createGetHandler();
   app.get('/:table', getHandler);
   app.get('/rest/v1/:table', getHandler);
+
+  // Helper function to create HEAD handler (same as GET but returns empty body)
+  const createHeadHandler = () => async (c: Context) => {
+    try {
+      const table = c.req.param('table');
+
+      // Block access to system tables
+      if (SYSTEM_TABLES.has(table)) {
+        return new Response(null, { status: 404 });
+      }
+
+      const queryString = c.req.url.split('?')[1] ?? '';
+
+      // Parse Prefer header for count option
+      const preferHeader = c.req.header('Prefer') ?? '';
+      const includeCount = preferHeader.includes('count=exact') ||
+                          preferHeader.includes('count=planned') ||
+                          preferHeader.includes('count=estimated');
+
+      // Build execution options with RLS enforcement if enabled
+      let executionOptions: { rlsEnforcer?: RLSASTEnforcer; requestContext?: RequestContext; includeCount?: boolean } = {};
+
+      if (includeCount) {
+        executionOptions.includeCount = true;
+      }
+
+      if (config.rls?.enabled && rlsEnforcer) {
+        const ctx = c.get('authContext') as RequestContext | undefined;
+        executionOptions.rlsEnforcer = rlsEnforcer;
+        if (ctx !== undefined) {
+          executionOptions.requestContext = ctx;
+        }
+      }
+
+      const response = await service.execute(
+        {
+          table,
+          queryString,
+        },
+        executionOptions
+      );
+
+      // Create response with headers but no body
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+
+      // Add Content-Range header if count was requested
+      if (includeCount && response.totalCount !== undefined) {
+        const contentRange = buildContentRange(response.data.length, response.totalCount, queryString);
+        headers['Content-Range'] = contentRange;
+      }
+
+      return new Response(null, { status: 200, headers });
+    } catch (error) {
+      return handleError(c, error);
+    }
+  };
+
+  // HEAD endpoint: HEAD /:table
+  // Also supports Supabase-style /rest/v1/:table for client compatibility
+  const headHandler = createHeadHandler();
+  app.on('HEAD', '/:table', headHandler);
+  app.on('HEAD', '/rest/v1/:table', headHandler);
 
   // Helper function to create insert handler
   const createPostHandler = () => async (c: Context) => {
@@ -549,4 +631,30 @@ function getHttpStatus(code: string): number {
     default:
       return 500;
   }
+}
+
+/**
+ * Build Content-Range header for pagination
+ * Format: "start-end/total" or "star/total" for empty results
+ *
+ * @param rowCount - Number of rows returned
+ * @param totalCount - Total rows matching the query
+ * @param queryString - Query string to extract offset
+ * @returns Content-Range header value
+ */
+function buildContentRange(rowCount: number, totalCount: number, queryString: string): string {
+  // Parse offset from query string
+  const offsetMatch = queryString.match(/[?&]offset=(\d+)/);
+  const offset = offsetMatch ? parseInt(offsetMatch[1]!, 10) : 0;
+
+  // If no rows returned, use "star/total" format
+  if (rowCount === 0) {
+    return `*/${totalCount}`;
+  }
+
+  // Calculate range: start-end/total
+  const start = offset;
+  const end = offset + rowCount - 1;
+
+  return `${start}-${end}/${totalCount}`;
 }
