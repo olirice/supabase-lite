@@ -5,6 +5,7 @@
  */
 
 import { CompilationError } from '../errors/index.js';
+import { escapeIdentifier } from '../utils/identifier.js';
 import type {
   QueryAST,
   WhereNode,
@@ -981,8 +982,7 @@ export class SQLCompiler {
    * Escape SQL identifier (table/column name)
    */
   private escapeIdentifier(identifier: string): string {
-    // SQLite uses double quotes for identifiers
-    return `"${identifier.replace(/"/g, '""')}"`;
+    return escapeIdentifier(identifier);
   }
 
   /**

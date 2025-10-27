@@ -10,6 +10,7 @@
 import type { AuthProvider, RequestContext } from '../auth/types.js';
 import type { Middleware, ContextRequest } from './types.js';
 import { verifyJWT } from '../auth/jwt.js';
+import { ROLE_ANON, ROLE_AUTHENTICATED } from '../utils/constants.js';
 
 /**
  * Create auth context middleware
@@ -25,7 +26,7 @@ export function authContextMiddleware(
   jwtSecret: string
 ): Middleware {
   return async (request: ContextRequest): Promise<Response | null> => {
-    let role: 'anon' | 'authenticated' = 'anon';
+    let role: 'anon' | 'authenticated' = ROLE_ANON;
     let uid: string | undefined;
 
     // Try to extract JWT from headers
@@ -58,11 +59,11 @@ export function authContextMiddleware(
 
       if (payload) {
         // Extract role from JWT
-        if (payload.role === 'authenticated') {
-          role = 'authenticated';
+        if (payload.role === ROLE_AUTHENTICATED) {
+          role = ROLE_AUTHENTICATED;
           uid = payload.sub;
-        } else if (payload.role === 'anon') {
-          role = 'anon';
+        } else if (payload.role === ROLE_ANON) {
+          role = ROLE_ANON;
           uid = undefined;
         }
         // service_role is treated as anon for RLS purposes (can be extended later)

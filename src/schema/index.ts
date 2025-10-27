@@ -6,6 +6,7 @@
  */
 
 import type Database from 'better-sqlite3';
+import { escapeIdentifier } from '../utils/identifier.js';
 
 export interface ColumnInfo {
   readonly name: string;
@@ -131,8 +132,7 @@ export class SchemaIntrospector {
    * Escape identifier for use in PRAGMA
    */
   private escapeIdentifier(identifier: string): string {
-    // For PRAGMA, we need to quote the identifier
-    return `"${identifier.replace(/"/g, '""')}"`;
+    return escapeIdentifier(identifier);
   }
 
   /**

@@ -574,29 +574,10 @@ export class QueryParser {
     checkOperatorSupport(operator);
 
     // Validate operator
-    const validOperators: FilterOperator[] = [
-      'eq',
-      'neq',
-      'gt',
-      'gte',
-      'lt',
-      'lte',
-      'like',
-      'ilike',
-      'is',
-      'in',
-    ];
-
-    if (!validOperators.includes(operator as FilterOperator)) {
-      throw new ParseError(`Unknown operator: ${operator}`, column);
-    }
+    const validatedOperator = this.validateOperator(operator, column);
 
     // Parse value based on operator
-    const value = this.parseFilterValue(
-      operator as FilterOperator,
-      valueStr,
-      column
-    );
+    const value = this.parseFilterValue(validatedOperator, valueStr, column);
 
     const filter: FilterNode = {
       type: 'filter',
@@ -664,29 +645,10 @@ export class QueryParser {
     checkOperatorSupport(operator);
 
     // Validate operator
-    const validOperators: FilterOperator[] = [
-      'eq',
-      'neq',
-      'gt',
-      'gte',
-      'lt',
-      'lte',
-      'like',
-      'ilike',
-      'is',
-      'in',
-    ];
-
-    if (!validOperators.includes(operator as FilterOperator)) {
-      throw new ParseError(`Unknown operator: ${operator}`, path.join('.'));
-    }
+    const validatedOperator = this.validateOperator(operator, path.join('.'));
 
     // Parse value based on operator
-    const value = this.parseFilterValue(
-      operator as FilterOperator,
-      valueStr,
-      path.join('.')
-    );
+    const value = this.parseFilterValue(validatedOperator, valueStr, path.join('.'));
 
     const filter: EmbeddedFilterNode = {
       type: 'embedded_filter',
@@ -806,6 +768,30 @@ export class QueryParser {
     }
 
     return values;
+  }
+
+  /**
+   * Validate that an operator is supported
+   */
+  private validateOperator(operator: string, context: string): FilterOperator {
+    const validOperators: FilterOperator[] = [
+      'eq',
+      'neq',
+      'gt',
+      'gte',
+      'lt',
+      'lte',
+      'like',
+      'ilike',
+      'is',
+      'in',
+    ];
+
+    if (!validOperators.includes(operator as FilterOperator)) {
+      throw new ParseError(`Unknown operator: ${operator}`, context);
+    }
+
+    return operator as FilterOperator;
   }
 
   /**

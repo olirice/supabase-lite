@@ -14,6 +14,7 @@
 import { QueryParser } from '../parser/index.js';
 import { SQLCompiler } from '../compiler/index.js';
 import { SchemaIntrospector } from '../schema/index.js';
+import { escapeIdentifier } from '../utils/identifier.js';
 import type { DatabaseAdapter } from '../database/index.js';
 import type { CompiledQuery } from '../compiler/index.js';
 import type { DatabaseSchema } from '../schema/index.js';
@@ -398,7 +399,7 @@ export class ApiService {
    * Helper to escape identifier
    */
   private escapeIdentifier(identifier: string): string {
-    return `"${identifier.replace(/"/g, '""')}"`;
+    return escapeIdentifier(identifier);
   }
 
   /**

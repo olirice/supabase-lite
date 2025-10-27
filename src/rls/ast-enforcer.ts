@@ -9,6 +9,8 @@ import type { RLSProvider, PolicyCommand } from './types.js';
 import type { RequestContext } from '../auth/types.js';
 import type { QueryAST, WhereNode, LogicalNode } from '../parser/types.js';
 import { parseSQLExpression } from './expression-parser.js';
+import { escapeSqlString, escapeIdentifier } from '../utils/identifier.js';
+import { DENY_ALL_FILTER_COLUMN, DENY_ALL_FILTER_VALUE } from '../utils/constants.js';
 
 /**
  * AST-Based RLS Enforcer
@@ -80,43 +82,25 @@ export class RLSASTEnforcer {
   private createDenyAllPolicy(): WhereNode {
     return {
       type: 'filter',
-      column: '1',
+      column: DENY_ALL_FILTER_COLUMN,
       operator: 'eq',
-      value: 0,
+      value: DENY_ALL_FILTER_VALUE,
     };
   }
 
   /**
-   * Build RLS policy node from multiple policies
+   * Build policy node from SQL expression strings
+   *
+   * Shared logic for converting policy SQL expressions into WhereNode AST.
+   * Handles auth function substitution, parsing, and OR combination.
    */
-  private buildRLSPolicyNode(
-    policies: readonly any[],
-    command: PolicyCommand,
+  private buildPolicyNodesFromExpressions(
+    expressions: string[],
     context: RequestContext
   ): WhereNode | null {
     const policyNodes: WhereNode[] = [];
 
-    for (const policy of policies) {
-      let expr: string | undefined;
-
-      // Determine which expression to use based on command
-      if (command === 'INSERT') {
-        expr = policy.withCheck;
-      } else if (command === 'UPDATE') {
-        // For UPDATE, combine USING and WITH CHECK with AND
-        const parts: string[] = [];
-        if (policy.using) parts.push(policy.using);
-        if (policy.withCheck) parts.push(policy.withCheck);
-        expr = parts.length > 0 ? parts.join(' AND ') : undefined;
-      } else {
-        // SELECT, DELETE - use USING
-        expr = policy.using;
-      }
-
-      if (!expr) {
-        continue;
-      }
-
+    for (const expr of expressions) {
       try {
         // Substitute auth functions BEFORE parsing
         const substituted = this.substituteAuthFunctions(expr, context);
@@ -126,7 +110,7 @@ export class RLSASTEnforcer {
         policyNodes.push(node);
       } catch (error) {
         console.error(`Failed to parse RLS policy expression "${expr}":`, error);
-        // Skip this policy if parsing fails
+        // Skip this expression if parsing fails
       }
     }
 
@@ -146,6 +130,41 @@ export class RLSASTEnforcer {
     };
 
     return combinedNode;
+  }
+
+  /**
+   * Build RLS policy node from multiple policies
+   */
+  private buildRLSPolicyNode(
+    policies: readonly any[],
+    command: PolicyCommand,
+    context: RequestContext
+  ): WhereNode | null {
+    const expressions: string[] = [];
+
+    for (const policy of policies) {
+      let expr: string | undefined;
+
+      // Determine which expression to use based on command
+      if (command === 'INSERT') {
+        expr = policy.withCheck;
+      } else if (command === 'UPDATE') {
+        // For UPDATE, combine USING and WITH CHECK with AND
+        const parts: string[] = [];
+        if (policy.using) parts.push(policy.using);
+        if (policy.withCheck) parts.push(policy.withCheck);
+        expr = parts.length > 0 ? parts.join(' AND ') : undefined;
+      } else {
+        // SELECT, DELETE - use USING
+        expr = policy.using;
+      }
+
+      if (expr) {
+        expressions.push(expr);
+      }
+    }
+
+    return this.buildPolicyNodesFromExpressions(expressions, context);
   }
 
   /**
@@ -169,7 +188,7 @@ export class RLSASTEnforcer {
    * Escape SQL string literals to prevent injection
    */
   private escapeSqlString(str: string): string {
-    return str.replace(/'/g, "''");
+    return escapeSqlString(str);
   }
 
   /**
@@ -201,33 +220,18 @@ export class RLSASTEnforcer {
       }
 
       // Build WITH CHECK expression from policies
-      const policyNodes: WhereNode[] = [];
+      const expressions: string[] = [];
       for (const policy of policies) {
         if (policy.withCheck) {
-          try {
-            const substituted = this.substituteAuthFunctions(policy.withCheck, context);
-            const node = parseSQLExpression(substituted);
-            policyNodes.push(node);
-          } catch (error) {
-            console.error(`Failed to parse WITH CHECK expression "${policy.withCheck}":`, error);
-          }
+          expressions.push(policy.withCheck);
         }
       }
 
-      if (policyNodes.length === 0) {
+      if (expressions.length === 0) {
         return null; // No WITH CHECK constraints
       }
 
-      // Single policy
-      if (policyNodes.length === 1) {
-        return policyNodes[0]!;
-      }
-
-      // Multiple policies - combine with OR
-      return {
-        type: 'or',
-        conditions: policyNodes,
-      };
+      return this.buildPolicyNodesFromExpressions(expressions, context);
     } catch (error) {
       console.error('Failed to get WITH CHECK policy:', error);
       return null;
@@ -284,7 +288,7 @@ export class RLSASTEnforcer {
    * Quote identifier for SQL
    */
   private quoteIdentifier(name: string): string {
-    return `"${name.replace(/"/g, '""')}"`;
+    return escapeIdentifier(name);
   }
 
   /**
@@ -305,9 +309,9 @@ export class RLSASTEnforcer {
 
     // Special case: "1 = 0" means reject all
     if (policyNode.type === 'filter' &&
-        policyNode.column === '1' &&
+        policyNode.column === DENY_ALL_FILTER_COLUMN &&
         policyNode.operator === 'eq' &&
-        policyNode.value === 0) {
+        policyNode.value === DENY_ALL_FILTER_VALUE) {
       // Delete all inserted rows
       const ids = rows.map(row => row[primaryKey]);
       if (ids.length > 0) {

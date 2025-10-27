@@ -8,6 +8,7 @@
  * - DROP POLICY ... ON ...
  */
 
+import { stripQuotes } from '../utils/identifier.js';
 import type { RLSStatement, RLSPolicy, PolicyCommand, PolicyRole } from './types.js';
 
 /**
@@ -123,9 +124,3 @@ function parseDropPolicy(sql: string): RLSStatement | null {
   };
 }
 
-/**
- * Remove quotes from identifier
- */
-function stripQuotes(identifier: string): string {
-  return identifier.replace(/^["']|["']$/g, '');
-}

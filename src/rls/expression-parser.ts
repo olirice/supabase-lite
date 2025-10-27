@@ -5,6 +5,7 @@
  * Supports common RLS policy patterns.
  */
 
+import { unquoteIdentifier, unescapeSqlString } from '../utils/identifier.js';
 import type { WhereNode, FilterNode, LogicalNode, FilterOperator } from '../parser/types.js';
 
 /**
@@ -299,12 +300,3 @@ function parseValue(token: string): string | number | boolean | null {
   return token;
 }
 
-/**
- * Remove quotes from identifier
- */
-function unquoteIdentifier(token: string): string {
-  if (token.startsWith('"') && token.endsWith('"')) {
-    return token.substring(1, token.length - 1);
-  }
-  return token;
-}
