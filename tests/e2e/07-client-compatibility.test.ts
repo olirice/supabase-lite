@@ -5,7 +5,7 @@
  * This proves that real-world PostgREST clients work with our implementation.
  *
  * If these tests pass, it means any application using supabase-js can work
- * with postgrest-lite as a drop-in replacement.
+ * with supabase-lite as a partially-compatible alternative (for supported features).
  */
 
 import { describe, test, expect, beforeAll, afterAll } from 'vitest';

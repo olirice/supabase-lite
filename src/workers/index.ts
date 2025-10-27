@@ -6,13 +6,22 @@
  * To deploy:
  * 1. Install wrangler: npm install -g wrangler
  * 2. Create wrangler.toml configuration
- * 3. Create D1 database: wrangler d1 create postgrest-db
+ * 3. Create D1 database: wrangler d1 create supabase-db
  * 4. Run migrations to set up schema
  * 5. Deploy: wrangler deploy
  */
 
 import { createServer } from '../api/server.js';
 import { D1Adapter } from '../database/d1-adapter.js';
+
+/**
+ * Cloudflare Workers ExecutionContext
+ */
+interface ExecutionContext {
+  waitUntil(promise: Promise<unknown>): void;
+  passThroughOnException(): void;
+  props: Record<string, unknown>;
+}
 
 /**
  * Cloudflare Workers environment bindings
@@ -91,13 +100,13 @@ export default {
  * Example wrangler.toml configuration:
  *
  * ```toml
- * name = "postgrest-lite"
+ * name = "supabase-lite"
  * main = "src/workers/index.ts"
  * compatibility_date = "2024-01-01"
  *
  * [[d1_databases]]
  * binding = "DB"
- * database_name = "postgrest-db"
+ * database_name = "supabase-db"
  * database_id = "your-database-id"
  *
  * [vars]
@@ -126,6 +135,6 @@ export default {
  *
  * Run migration:
  * ```bash
- * wrangler d1 execute postgrest-db --file=./migrations/0001_initial.sql
+ * wrangler d1 execute supabase-db --file=./migrations/0001_initial.sql
  * ```
  */

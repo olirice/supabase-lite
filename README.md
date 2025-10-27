@@ -1,6 +1,19 @@
-# PostgREST-Lite
+# Supabase-Lite
 
-A lightweight PostgREST-compatible query interface for SQLite, optimized for **Cloudflare Workers** with **D1**, built with strict TypeScript and comprehensive test coverage.
+**⚠️ Experimental POC / Toy Project - Not Production Ready**
+
+A partially API-compatible implementation of a subset of **Supabase** for **SQLite/D1**. This proof-of-concept implements PostgREST-style queries + Auth/RLS, allowing Supabase client libraries to work (with limitations). Optimized for **Cloudflare Workers** with **D1**, built with strict TypeScript and comprehensive test coverage.
+
+**What works:**
+- PostgREST-compatible query syntax (filtering, ordering, embedding)
+- JWT authentication with GoTrue-compatible endpoints
+- Row-Level Security (RLS) policies
+- Runs on SQLite (Node.js) and D1 (Cloudflare Workers)
+
+**What doesn't:**
+- Many Supabase features (Storage, Realtime, Edge Functions, etc.)
+- Full PostgREST compatibility (many operators and features missing)
+- Production-grade performance, security, or reliability
 
 ```bash
 # Local development
@@ -9,6 +22,10 @@ npm run dev:example
 # Query your data
 curl "http://localhost:3000/users?select=id,name&age=gte.18"
 curl "http://localhost:3000/posts?select=title,author(name,email)"
+
+# With authentication & RLS
+curl "http://localhost:3000/posts" \
+  -H "Authorization: Bearer <token>"
 ```
 
 ---
@@ -51,6 +68,93 @@ GET /posts?select=title,author(name,posts(title))
 GET /posts?select=id,creator:author(name)
 ```
 
+### ✅ Authentication & Row-Level Security (RLS)
+
+```typescript
+// Enable authentication and RLS
+const app = createServer({
+  db: adapter,
+  auth: {
+    enabled: true,
+    jwtSecret: 'your-secret-key',
+    goTrue: true, // Supabase client compatibility
+  },
+  rls: {
+    enabled: true,
+  },
+});
+
+// Define RLS policies
+await rlsProvider.enableRLS('posts');
+await rlsProvider.createPolicy({
+  name: 'anon_read_published',
+  tableName: 'posts',
+  command: 'SELECT',
+  role: 'anon',
+  using: policy.eq('published', 1), // Only published posts
+});
+
+await rlsProvider.createPolicy({
+  name: 'auth_read_all',
+  tableName: 'posts',
+  command: 'SELECT',
+  role: 'authenticated',
+  using: policy.alwaysAllow(), // All posts
+});
+```
+
+**Authentication:**
+- JWT-based authentication with two roles: `anon` (unauthenticated) and `authenticated`
+- GoTrue-compatible endpoints (`/auth/v1/signup`, `/auth/v1/token`) for Supabase client
+- Extracts tokens from `Authorization: Bearer <token>` or `apikey` headers
+- Injects `RequestContext` with role and user ID into every request
+
+**RLS Policies:**
+- Define row-level security policies per table and role
+- Type-safe policy builder API with auth functions
+- Policies automatically applied based on request context
+
+```bash
+# Unauthenticated request (role=anon)
+curl "http://localhost:3000/posts" \
+  -H "apikey: <anon-key>"
+# Returns: Only published posts
+
+# Authenticated request (role=authenticated)
+curl "http://localhost:3000/posts" \
+  -H "Authorization: Bearer <user-token>"
+# Returns: All posts (published + unpublished)
+```
+
+**Policy Builder Functions:**
+- **Comparisons**: `eq()`, `neq()`, `gt()`, `gte()`, `lt()`, `lte()`, `in()`, `like()`, `ilike()`
+- **Null checks**: `isNull()`, `isNotNull()`
+- **Logical**: `and()`, `or()`
+- **Auth functions**: `authUid()`, `authRole()`
+- **Special**: `alwaysAllow()`, `alwaysDeny()`
+
+**Example Policies:**
+
+```typescript
+// Users can only see their own posts
+policy.eq('user_id', policy.authUid())
+
+// Users can see their own posts OR published posts
+policy.or(
+  policy.eq('user_id', policy.authUid()),
+  policy.eq('published', 1)
+)
+
+// Admins only
+policy.eq('role', 'admin')
+
+// Public posts in specific categories
+policy.and(
+  policy.eq('published', 1),
+  policy.in('category', ['news', 'blog'])
+)
+```
+
 ---
 
 ## Quick Start
@@ -58,13 +162,13 @@ GET /posts?select=id,creator:author(name)
 ### Installation
 
 ```bash
-npm install postgrest-lite
+npm install supabase-lite
 ```
 
 ### Local Development
 
 ```typescript
-import { startServer } from 'postgrest-lite/local';
+import { startServer } from 'supabase-lite/local';
 
 const { adapter } = await startServer({
   port: 3000,
@@ -135,6 +239,38 @@ $ curl "http://localhost:3000/posts?select=title,author(name)&status=eq.publishe
 ]
 ```
 
+### Authentication & RLS
+
+```bash
+# Sign up a new user
+$ curl -X POST "http://localhost:3000/auth/v1/signup" \
+  -H "apikey: <anon-key>" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"alice@example.com","password":"password123"}'
+
+# Login to get access token
+$ curl -X POST "http://localhost:3000/auth/v1/token" \
+  -H "apikey: <anon-key>" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"alice@example.com","password":"password123"}'
+
+# Access protected data with token
+$ curl "http://localhost:3000/posts" \
+  -H "Authorization: Bearer <access-token>"
+```
+
+```json
+{
+  "access_token": "eyJhbGc...",
+  "token_type": "bearer",
+  "expires_in": 86400,
+  "user": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "email": "alice@example.com"
+  }
+}
+```
+
 ---
 
 ## Architecture
@@ -144,6 +280,10 @@ $ curl "http://localhost:3000/posts?select=title,author(name)&status=eq.publishe
 ```
 ┌─────────────────────────────────────────┐
 │         HTTP Layer (Hono)               │
+│      ┌────────────────────────┐         │
+│      │  Auth Middleware       │         │
+│      │  RLS Middleware        │         │
+│      └────────────────────────┘         │
 ├─────────────────────────────────────────┤
 │         API Service                     │
 │  ┌──────────┬──────────┬──────────┐    │
@@ -158,12 +298,14 @@ $ curl "http://localhost:3000/posts?select=title,author(name)&status=eq.publishe
 
 ### Components
 
-1. **Parser** - Converts PostgREST query strings to AST
-2. **Compiler** - Compiles AST to SQL with resource embedding
-3. **Schema** - Introspects database for relationships
-4. **Adapters** - Abstract SQLite and D1 differences
-5. **API Service** - Orchestrates query execution
-6. **HTTP Server** - Hono-based REST endpoints
+1. **Auth Middleware** - JWT validation and context injection
+2. **RLS Middleware** - Row-level security policy enforcement
+3. **Parser** - Converts PostgREST query strings to AST
+4. **Compiler** - Compiles AST to SQL with resource embedding
+5. **Schema** - Introspects database for relationships
+6. **Adapters** - Abstract SQLite and D1 differences
+7. **API Service** - Orchestrates query execution
+8. **HTTP Server** - Hono-based REST endpoints
 
 ---
 
@@ -210,6 +352,89 @@ GET /posts?select=id,author(*)
 
 # Nested: table(column,nested_table(columns))
 GET /posts?select=author(name,posts(title))
+```
+
+### Authentication Endpoints
+
+When authentication is enabled, the following endpoints are available:
+
+| Endpoint | Method | Description | Headers Required |
+|----------|--------|-------------|------------------|
+| `/auth/signup` | POST | Create new user account | `apikey`, `Content-Type: application/json` |
+| `/auth/login` | POST | Authenticate and get token | `apikey`, `Content-Type: application/json` |
+| `/auth/v1/signup` | POST | GoTrue-compatible signup | `apikey`, `Content-Type: application/json` |
+| `/auth/v1/token` | POST | GoTrue-compatible login | `apikey`, `Content-Type: application/json` |
+
+**Signup Request Body:**
+```json
+{
+  "email": "user@example.com",
+  "password": "secure-password",
+  "username": "optional-username"
+}
+```
+
+**Login Request Body:**
+```json
+{
+  "email": "user@example.com",
+  "password": "secure-password"
+}
+```
+
+**Response:**
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "bearer",
+  "expires_in": 86400,
+  "user": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "email": "user@example.com",
+    "username": "username"
+  }
+}
+```
+
+**Using Authentication:**
+
+All authenticated requests should include the access token:
+
+```bash
+# Via Authorization header (recommended)
+curl "http://localhost:3000/posts" \
+  -H "Authorization: Bearer <access-token>"
+
+# Via apikey header (for Supabase client compatibility)
+curl "http://localhost:3000/posts" \
+  -H "apikey: <access-token>"
+```
+
+### RLS Policy Configuration
+
+```typescript
+import { SqliteRLSProvider } from 'supabase-lite/rls';
+import { policy } from 'supabase-lite/rls/policy-builder';
+
+const rlsProvider = new SqliteRLSProvider(db);
+
+// Enable RLS on a table
+await rlsProvider.enableRLS('posts');
+
+// Create a policy
+await rlsProvider.createPolicy({
+  name: 'policy_name',
+  tableName: 'posts',
+  command: 'SELECT',  // or 'INSERT', 'UPDATE', 'DELETE'
+  role: 'authenticated',  // or 'anon'
+  using: policy.eq('user_id', policy.authUid()),
+});
+
+// Disable RLS on a table
+await rlsProvider.disableRLS('posts');
+
+// Drop a policy
+await rlsProvider.dropPolicy('posts', 'policy_name');
 ```
 
 ---
@@ -264,23 +489,23 @@ npm run type-check
 
 **wrangler.toml**:
 ```toml
-name = "postgrest-lite"
+name = "supabase-lite"
 main = "src/workers/index.ts"
 compatibility_date = "2024-01-01"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "postgrest-db"
+database_name = "supabase-db"
 database_id = "your-database-id"
 ```
 
 **Deploy**:
 ```bash
 # Create D1 database
-wrangler d1 create postgrest-db
+wrangler d1 create supabase-db
 
 # Run migrations
-wrangler d1 execute postgrest-db --file=./migrations/schema.sql
+wrangler d1 execute supabase-db --file=./migrations/schema.sql
 
 # Deploy
 wrangler deploy
@@ -289,12 +514,27 @@ wrangler deploy
 ### Node.js
 
 ```typescript
-import { startServer } from 'postgrest-lite/local';
+import { startServer } from 'supabase-lite/local';
 
 await startServer({
   port: process.env.PORT || 3000,
   databasePath: process.env.DATABASE_PATH || 'data.db',
+  auth: {
+    enabled: true,
+    jwtSecret: process.env.JWT_SECRET,
+    goTrue: true,
+  },
+  rls: {
+    enabled: true,
+  },
 });
+```
+
+**Environment Variables:**
+```bash
+PORT=3000
+DATABASE_PATH=./data.db
+JWT_SECRET=your-secret-key-min-32-chars
 ```
 
 ---
@@ -394,12 +634,19 @@ test('GET /users - all rows', async () => {
 - 18 E2E tests
 - Cloudflare Workers support
 
+### Phase 6 ✅ Complete
+- JWT-based authentication
+- GoTrue-compatible auth endpoints
+- Row-Level Security (RLS) policies
+- Type-safe policy builder API
+- Auth context injection middleware
+
 ### Future Phases
 
-- **Phase 6**: Mutations (INSERT, UPDATE, DELETE)
-- **Phase 7**: Advanced filtering (full-text search, JSON operators)
-- **Phase 8**: Performance optimizations (caching, connection pooling)
-- **Phase 9**: Additional adapters (Postgres, Turso, PGlite)
+- **Phase 7**: Mutations (INSERT, UPDATE, DELETE)
+- **Phase 8**: Advanced filtering (full-text search, JSON operators)
+- **Phase 9**: Performance optimizations (caching, connection pooling)
+- **Phase 10**: Additional adapters (Postgres, Turso, PGlite)
 
 ---
 
