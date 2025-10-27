@@ -273,6 +273,317 @@ describe('RLS AST Enforcer', () => {
     });
   });
 
+  describe('UPDATE command policy handling', () => {
+    test('Combines USING and WITH CHECK with AND for UPDATE', async () => {
+      await rlsProvider.enableRLS('posts');
+      await rlsProvider.createPolicy({
+        name: 'update_policy',
+        tableName: 'posts',
+        command: 'UPDATE',
+        role: 'authenticated',
+        using: policy.eq('user_id', policy.authUid()),
+        withCheck: policy.eq('published', 1),
+      });
+
+      const url = 'http://localhost/posts';
+      const context: RequestContext = { role: 'authenticated', uid: 'user-123' };
+
+      // For UPDATE command, call enforceOnAST with 'UPDATE'
+      const ast = parser.parse(url);
+      const astWithRLS = await enforcer.enforceOnAST(ast, 'UPDATE', context);
+
+      // Should combine both USING and WITH CHECK with AND
+      expect(astWithRLS.rlsPolicy).toBeDefined();
+      expect(astWithRLS.rlsPolicy?.type).toBe('and');
+    });
+
+    test('Handles UPDATE with only USING clause', async () => {
+      await rlsProvider.enableRLS('posts');
+      await rlsProvider.createPolicy({
+        name: 'update_using',
+        tableName: 'posts',
+        command: 'UPDATE',
+        role: 'authenticated',
+        using: policy.eq('user_id', policy.authUid()),
+      });
+
+      const url = 'http://localhost/posts';
+      const context: RequestContext = { role: 'authenticated', uid: 'user-123' };
+
+      const ast = parser.parse(url);
+      const astWithRLS = await enforcer.enforceOnAST(ast, 'UPDATE', context);
+
+      expect(astWithRLS.rlsPolicy).toBeDefined();
+      expect(astWithRLS.rlsPolicy?.type).toBe('filter');
+    });
+
+    test('Handles UPDATE with only WITH CHECK clause', async () => {
+      await rlsProvider.enableRLS('posts');
+      await rlsProvider.createPolicy({
+        name: 'update_check',
+        tableName: 'posts',
+        command: 'UPDATE',
+        role: 'authenticated',
+        withCheck: policy.eq('published', 1),
+      });
+
+      const url = 'http://localhost/posts';
+      const context: RequestContext = { role: 'authenticated', uid: 'user-123' };
+
+      const ast = parser.parse(url);
+      const astWithRLS = await enforcer.enforceOnAST(ast, 'UPDATE', context);
+
+      expect(astWithRLS.rlsPolicy).toBeDefined();
+      expect(astWithRLS.rlsPolicy?.type).toBe('filter');
+    });
+
+    test('Denies UPDATE when policy has neither USING nor WITH CHECK', async () => {
+      await rlsProvider.enableRLS('posts');
+      await rlsProvider.createPolicy({
+        name: 'empty_update',
+        tableName: 'posts',
+        command: 'UPDATE',
+        role: 'authenticated',
+        // No using or withCheck
+      });
+
+      const url = 'http://localhost/posts';
+      const context: RequestContext = { role: 'authenticated', uid: 'user-123' };
+
+      const ast = parser.parse(url);
+      const astWithRLS = await enforcer.enforceOnAST(ast, 'UPDATE', context);
+
+      // Should deny all when no valid conditions
+      expect(astWithRLS.rlsPolicy).toBeDefined();
+      expect(astWithRLS.rlsPolicy?.column).toBe('1');
+      expect(astWithRLS.rlsPolicy?.value).toBe(0);
+    });
+  });
+
+  describe('auth.role() substitution', () => {
+    test('Replaces auth.role() with actual role value', async () => {
+      await rlsProvider.enableRLS('posts');
+
+      // Add role column
+      db.exec('ALTER TABLE posts ADD COLUMN role TEXT');
+
+      await rlsProvider.createPolicy({
+        name: 'role_based',
+        tableName: 'posts',
+        command: 'SELECT',
+        role: 'authenticated',
+        using: policy.eq('role', policy.authRole()),
+      });
+
+      const url = 'http://localhost/posts';
+      const context: RequestContext = { role: 'authenticated', uid: 'user-123' };
+
+      const sql = await getFinalSQL(url, context);
+
+      expect(sql).toContain('"role" = ?');
+    });
+
+    test('Handles auth.role() in OR conditions', async () => {
+      await rlsProvider.enableRLS('posts');
+
+      // Add role column
+      db.exec('ALTER TABLE posts ADD COLUMN role TEXT');
+
+      await rlsProvider.createPolicy({
+        name: 'multi_role',
+        tableName: 'posts',
+        command: 'SELECT',
+        role: 'authenticated',
+        using: policy.or(
+          policy.eq('role', policy.authRole()),
+          policy.eq('published', 1)
+        ),
+      });
+
+      const url = 'http://localhost/posts';
+      const context: RequestContext = { role: 'authenticated', uid: 'user-123' };
+
+      const sql = await getFinalSQL(url, context);
+
+      expect(sql).toContain('"role" = ?');
+      expect(sql).toContain('OR');
+      expect(sql).toContain('"published" = ?');
+    });
+  });
+
+  describe('getWithCheckPolicy edge cases', () => {
+    test('Returns null when RLS is not enabled', async () => {
+      // RLS not enabled on posts table
+      const context: RequestContext = { role: 'authenticated', uid: 'user-123' };
+
+      const withCheckNode = await enforcer.getWithCheckPolicy('posts', context);
+
+      expect(withCheckNode).toBeNull();
+    });
+
+    test('Returns deny-all when no INSERT policies exist', async () => {
+      await rlsProvider.enableRLS('posts');
+      // No policies created
+
+      const context: RequestContext = { role: 'authenticated', uid: 'user-123' };
+
+      const withCheckNode = await enforcer.getWithCheckPolicy('posts', context);
+
+      expect(withCheckNode).toBeDefined();
+      expect(withCheckNode?.column).toBe('1');
+      expect(withCheckNode?.value).toBe(0);
+    });
+
+    test('Returns null when policies have no WITH CHECK clause', async () => {
+      await rlsProvider.enableRLS('posts');
+      await rlsProvider.createPolicy({
+        name: 'insert_no_check',
+        tableName: 'posts',
+        command: 'INSERT',
+        role: 'authenticated',
+        // No withCheck clause
+      });
+
+      const context: RequestContext = { role: 'authenticated', uid: 'user-123' };
+
+      const withCheckNode = await enforcer.getWithCheckPolicy('posts', context);
+
+      expect(withCheckNode).toBeNull();
+    });
+
+    test('Handles errors gracefully', async () => {
+      // Create provider first, then close database to cause error
+      const closedDb = new Database(':memory:');
+      const brokenProvider = new SqliteRLSProvider(closedDb);
+      closedDb.close();
+      const brokenEnforcer = new RLSASTEnforcer(brokenProvider);
+
+      const context: RequestContext = { role: 'authenticated', uid: 'user-123' };
+
+      const withCheckNode = await brokenEnforcer.getWithCheckPolicy('posts', context);
+
+      // Should return null on error
+      expect(withCheckNode).toBeNull();
+    });
+  });
+
+  describe('SQL operator compilation', () => {
+    test('Compiles LIKE operator', async () => {
+      await rlsProvider.enableRLS('posts');
+      await rlsProvider.createPolicy({
+        name: 'like_policy',
+        tableName: 'posts',
+        command: 'SELECT',
+        role: 'anon',
+        using: policy.like('title', 'Test%'),
+      });
+
+      const url = 'http://localhost/posts';
+      const context: RequestContext = { role: 'anon' };
+
+      const sql = await getFinalSQL(url, context);
+
+      expect(sql).toContain('LIKE');
+    });
+
+    test('Compiles ILIKE operator (treated as LIKE in SQLite)', async () => {
+      await rlsProvider.enableRLS('posts');
+      await rlsProvider.createPolicy({
+        name: 'ilike_policy',
+        tableName: 'posts',
+        command: 'SELECT',
+        role: 'anon',
+        using: policy.ilike('title', 'test%'),
+      });
+
+      const url = 'http://localhost/posts';
+      const context: RequestContext = { role: 'anon' };
+
+      const sql = await getFinalSQL(url, context);
+
+      expect(sql).toContain('LIKE');
+    });
+
+    test('Compiles IN operator', async () => {
+      await rlsProvider.enableRLS('posts');
+      await rlsProvider.createPolicy({
+        name: 'in_policy',
+        tableName: 'posts',
+        command: 'SELECT',
+        role: 'anon',
+        using: policy.in('id', [1, 2, 3]),
+      });
+
+      const url = 'http://localhost/posts';
+      const context: RequestContext = { role: 'anon' };
+
+      const sql = await getFinalSQL(url, context);
+
+      expect(sql).toContain('IN');
+    });
+
+    test('Compiles IS NULL operator', async () => {
+      await rlsProvider.enableRLS('posts');
+      await rlsProvider.createPolicy({
+        name: 'is_null_policy',
+        tableName: 'posts',
+        command: 'SELECT',
+        role: 'anon',
+        using: policy.isNull('content'),
+      });
+
+      const url = 'http://localhost/posts';
+      const context: RequestContext = { role: 'anon' };
+
+      const sql = await getFinalSQL(url, context);
+
+      expect(sql).toContain('IS');
+    });
+  });
+
+  describe('compileWhereNode edge cases', () => {
+    test('Throws error for embedded_filter nodes', () => {
+      const embeddedNode: WhereNode = {
+        type: 'embedded_filter',
+        table: 'comments',
+        filters: [],
+      };
+
+      expect(() => {
+        enforcer.compileWhereNode(embeddedNode);
+      }).toThrow('Embedded filters not supported in RLS policies');
+    });
+
+    test('Handles numeric literal columns correctly', () => {
+      const numericNode: WhereNode = {
+        type: 'filter',
+        column: '1',
+        operator: 'eq',
+        value: 0,
+      };
+
+      const { sql } = enforcer.compileWhereNode(numericNode);
+
+      // Should not quote numeric literals
+      expect(sql).toBe('1 = ?');
+      expect(sql).not.toContain('"1"');
+    });
+
+    test('Handles regular columns with quotes', () => {
+      const regularNode: WhereNode = {
+        type: 'filter',
+        column: 'user_id',
+        operator: 'eq',
+        value: 'test',
+      };
+
+      const { sql } = enforcer.compileWhereNode(regularNode);
+
+      // Should quote regular identifiers
+      expect(sql).toContain('"user_id"');
+    });
+  });
+
   describe('validateWithCheck edge cases', () => {
     test('Returns empty array when validating empty rows', async () => {
       await rlsProvider.enableRLS('posts');
