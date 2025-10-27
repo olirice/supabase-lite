@@ -53,8 +53,7 @@ export interface D1ExecResult {
  */
 class D1PreparedStatementWrapper implements PreparedStatement {
   constructor(
-    private stmt: D1PreparedStatement,
-    private params: readonly unknown[] = []
+    private stmt: D1PreparedStatement
   ) {}
 
   async all<T = unknown>(...params: readonly unknown[]): Promise<QueryResult<T>> {

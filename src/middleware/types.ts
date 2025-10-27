@@ -23,6 +23,11 @@ export type Middleware = (
 ) => Promise<Response | null> | Response | null;
 
 /**
+ * Auth middleware type (alias for Middleware)
+ */
+export type AuthMiddleware = Middleware;
+
+/**
  * Middleware configuration
  */
 export interface MiddlewareConfig {

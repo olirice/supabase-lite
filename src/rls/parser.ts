@@ -90,15 +90,9 @@ function parseCreatePolicy(sql: string): RLSStatement | null {
     tableName: stripQuotes(tableName!),
     command: (command?.toUpperCase() as PolicyCommand) || 'ALL',
     role: (role as PolicyRole) || 'PUBLIC',
+    ...(usingExpr ? { using: usingExpr.trim() as any } : {}),
+    ...(withCheckExpr ? { withCheck: withCheckExpr.trim() as any } : {}),
   };
-
-  if (usingExpr) {
-    policy.using = usingExpr.trim();
-  }
-
-  if (withCheckExpr) {
-    policy.withCheck = withCheckExpr.trim();
-  }
 
   return {
     type: 'create_policy',

@@ -31,11 +31,13 @@ export interface CompiledQuery {
  */
 export class SQLCompiler {
   private params: unknown[] = [];
-  private schema?: DatabaseSchema;
+  private schema: DatabaseSchema | undefined;
   private currentMainTable?: string; // Used for resolving embedded filters
 
   constructor(schema?: DatabaseSchema) {
-    this.schema = schema;
+    if (schema !== undefined) {
+      this.schema = schema;
+    }
   }
 
   /**
@@ -544,31 +546,6 @@ export class SQLCompiler {
     return `${subquery} AS ${this.escapeIdentifier(alias)}`;
   }
 
-  /**
-   * Get columns to select from embedded table
-   */
-  private getEmbeddedColumns(
-    embedding: EmbeddedColumn,
-    tableName: string,
-    tableAlias: string
-  ): Array<{ name: string }> {
-    const selectNode = embedding.select;
-
-    if (selectNode.columns.length === 0) {
-      // No columns specified, select all
-      return this.getAllTableColumns(tableName);
-    }
-
-    if (selectNode.columns.length === 1 && selectNode.columns[0]?.type === 'wildcard') {
-      // Wildcard, select all columns
-      return this.getAllTableColumns(tableName);
-    }
-
-    // Extract column names
-    return selectNode.columns
-      .filter((col) => col.type === 'column')
-      .map((col) => ({ name: (col as any).name }));
-  }
 
   /**
    * Get all columns for a table from schema

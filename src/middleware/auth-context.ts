@@ -7,7 +7,7 @@
  * Supports both anon keys (role=anon) and user tokens (role=authenticated).
  */
 
-import type { AuthProvider, RequestContext } from '../auth/types.js';
+import type { AuthProvider } from '../auth/types.js';
 import type { Middleware, ContextRequest } from './types.js';
 import { verifyJWT } from '../auth/jwt.js';
 import { ROLE_ANON, ROLE_AUTHENTICATED } from '../utils/constants.js';
@@ -22,7 +22,7 @@ import { ROLE_ANON, ROLE_AUTHENTICATED } from '../utils/constants.js';
  * - role=authenticated → role: 'authenticated', uid: <user-id>
  */
 export function authContextMiddleware(
-  authProvider: AuthProvider,
+  _authProvider: AuthProvider,
   jwtSecret: string
 ): Middleware {
   return async (request: ContextRequest): Promise<Response | null> => {
@@ -30,7 +30,7 @@ export function authContextMiddleware(
     let uid: string | undefined;
 
     // Try to extract JWT from headers
-    let token: string | null = null;
+    let token: string | undefined;
 
     // Check Authorization header FIRST (user token after login)
     const authHeader = request.headers.get('authorization');
@@ -71,9 +71,9 @@ export function authContextMiddleware(
     }
 
     // Create immutable context
-    const context: RequestContext = Object.freeze({
+    const context: Readonly<{ role: 'anon' | 'authenticated'; uid?: string }> = Object.freeze({
       role,
-      uid,
+      ...(uid !== undefined ? { uid } : {}),
     });
 
     // Inject context into request

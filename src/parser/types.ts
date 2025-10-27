@@ -114,6 +114,14 @@ export type FilterOperator =
   | 'in';
 
 /**
+ * Auth function reference (used in RLS policies)
+ */
+export interface AuthFunction {
+  type: 'auth_function';
+  name: 'uid' | 'role';
+}
+
+/**
  * Filter value types
  */
 export type FilterValue =
@@ -121,7 +129,8 @@ export type FilterValue =
   | number
   | boolean
   | null
-  | readonly (string | number)[];
+  | readonly (string | number)[]
+  | AuthFunction;
 
 /**
  * Logical combination of conditions

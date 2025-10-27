@@ -14,13 +14,11 @@
 import { QueryParser } from '../parser/index.js';
 import { SQLCompiler } from '../compiler/index.js';
 import { SchemaIntrospector } from '../schema/index.js';
-import { escapeIdentifier } from '../utils/identifier.js';
 import type { DatabaseAdapter } from '../database/index.js';
 import type { CompiledQuery } from '../compiler/index.js';
 import type { DatabaseSchema } from '../schema/index.js';
 import type { RLSASTEnforcer } from '../rls/ast-enforcer.js';
 import type { RequestContext } from '../auth/types.js';
-import type { PolicyCommand } from '../rls/types.js';
 import type { WhereNode, LogicalNode } from '../parser/types.js';
 
 /**
@@ -251,7 +249,7 @@ export class ApiService {
     const stmt = this.config.db.prepare(compiled.sql);
     const result = await stmt.all<T>(...compiled.params);
 
-    let validatedRows = this.formatResponse(result.rows);
+    let validatedRows = this.formatResponse(result.rows) as readonly T[];
 
     // Apply WITH CHECK policy validation if RLS is enabled
     if (options?.rlsEnforcer && options?.requestContext) {
@@ -264,11 +262,12 @@ export class ApiService {
       if (withCheckPolicyNode) {
         // Validate inserted rows against policy
         // This will delete rows that don't pass the check
-        validatedRows = await options.rlsEnforcer.validateWithCheck(
+        const validated = await options.rlsEnforcer.validateWithCheck(
           table,
-          validatedRows,
+          validatedRows as any as Record<string, unknown>[],
           withCheckPolicyNode
         );
+        validatedRows = validated as any as readonly T[];
       }
     }
 
@@ -395,12 +394,6 @@ export class ApiService {
     };
   }
 
-  /**
-   * Helper to escape identifier
-   */
-  private escapeIdentifier(identifier: string): string {
-    return escapeIdentifier(identifier);
-  }
 
   /**
    * Merge user WHERE clause with RLS policy using AND
@@ -437,7 +430,7 @@ export class ApiService {
    * Clear cached schema (useful for testing)
    */
   clearSchemaCache(): void {
-    this.cachedSchema = undefined;
+    delete this.cachedSchema;
   }
 }
 

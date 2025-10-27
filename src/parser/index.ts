@@ -453,7 +453,7 @@ export class QueryParser {
   /**
    * Parse WHERE clause from query parameters
    */
-  private parseWhere(params: URLSearchParams, embeddedParams: Map<string, Map<string, string[]>>): WhereNode | undefined {
+  private parseWhere(params: URLSearchParams, _embeddedParams: Map<string, Map<string, string[]>>): WhereNode | undefined {
     const conditions: WhereNode[] = [];
 
     // Reserved parameters that are not filters

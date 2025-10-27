@@ -47,10 +47,13 @@ export async function startServer(config: LocalServerConfig = {}): Promise<{
   const adapter = new SqliteAdapter(db);
 
   // Create Hono app
-  const app = createServer({
+  const serverConfig: { db: SqliteAdapter; cors?: { readonly origin?: string | string[]; readonly credentials?: boolean } } = {
     db: adapter,
-    cors: config.cors,
-  });
+  };
+  if (config.cors !== undefined) {
+    serverConfig.cors = config.cors;
+  }
+  const app = createServer(serverConfig);
 
   // Start server
   const server = serve({

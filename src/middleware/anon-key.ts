@@ -42,7 +42,7 @@ export function anonKeyMiddleware(config: AnonKeyConfig): Middleware {
     }
 
     // Try to extract JWT from headers
-    let token: string | null = null;
+    let token: string | undefined;
 
     // Check apikey header first
     const apikeyHeader = request.headers.get('apikey');

@@ -191,19 +191,10 @@ export class SqliteRLSProvider implements RLSProvider {
       tableName: row.table_name,
       command: row.command,
       role: row.role,
+      ...(row.using_expr ? { using: JSON.parse(row.using_expr) as WhereNode } : {}),
+      ...(row.with_check_expr ? { withCheck: JSON.parse(row.with_check_expr) as WhereNode } : {}),
+      ...(row.restrictive === 1 ? { restrictive: true } : {}),
     };
-
-    if (row.using_expr) {
-      policy.using = JSON.parse(row.using_expr) as WhereNode;
-    }
-
-    if (row.with_check_expr) {
-      policy.withCheck = JSON.parse(row.with_check_expr) as WhereNode;
-    }
-
-    if (row.restrictive === 1) {
-      policy.restrictive = true;
-    }
 
     return policy;
   }

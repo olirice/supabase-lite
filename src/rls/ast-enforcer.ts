@@ -9,9 +9,8 @@
 
 import type { RLSProvider, PolicyCommand } from './types.js';
 import type { RequestContext } from '../auth/types.js';
-import type { QueryAST, WhereNode, LogicalNode, FilterNode } from '../parser/types.js';
-import type { AuthFunction } from './policy-builder.js';
-import { escapeSqlString, escapeIdentifier } from '../utils/identifier.js';
+import type { QueryAST, WhereNode, AuthFunction } from '../parser/types.js';
+import { escapeIdentifier } from '../utils/identifier.js';
 import { DENY_ALL_FILTER_COLUMN, DENY_ALL_FILTER_VALUE } from '../utils/constants.js';
 
 /**

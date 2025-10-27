@@ -11,33 +11,31 @@
  *   )
  */
 
-import type { WhereNode, FilterNode, LogicalNode, FilterOperator } from '../parser/types.js';
+import type { WhereNode, FilterNode, LogicalNode, FilterValue, AuthFunction as AuthFunctionType } from '../parser/types.js';
 
 /**
- * Special marker type for auth function values
+ * Re-export AuthFunction type for backwards compatibility
  */
-export interface AuthFunction {
-  type: 'auth_function';
-  name: 'uid' | 'role';
-}
+export type AuthFunction = AuthFunctionType;
 
 /**
  * Policy value - can be a literal or an auth function
+ * This is just an alias for FilterValue for backwards compatibility
  */
-export type PolicyValue = string | number | boolean | null | AuthFunction;
+export type PolicyValue = FilterValue;
 
 /**
  * Helper to create auth.uid() reference
  */
 export function authUid(): AuthFunction {
-  return { type: 'auth_function', name: 'uid' };
+  return { type: 'auth_function', name: 'uid' } as const;
 }
 
 /**
  * Helper to create auth.role() reference
  */
 export function authRole(): AuthFunction {
-  return { type: 'auth_function', name: 'role' };
+  return { type: 'auth_function', name: 'role' } as const;
 }
 
 /**
@@ -139,7 +137,7 @@ export function lte(column: string, value: PolicyValue): FilterNode {
 /**
  * IN comparison
  */
-export function inList(column: string, values: PolicyValue[]): FilterNode {
+export function inList(column: string, values: readonly (string | number)[]): FilterNode {
   return {
     type: 'filter',
     column,

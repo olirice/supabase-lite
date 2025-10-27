@@ -10,4 +10,4 @@ export { anonKeyMiddleware } from './anon-key.js';
 export { authContextMiddleware } from './auth-context.js';
 
 // Types
-export type { AuthMiddleware } from './types.js';
+export type { Middleware, AuthMiddleware } from './types.js';

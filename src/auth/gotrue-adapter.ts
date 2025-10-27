@@ -16,6 +16,16 @@ import type { Hono, Context } from 'hono';
 import type { SqliteAuthProvider } from './provider.js';
 
 /**
+ * GoTrue configuration type
+ */
+export interface GoTrueConfig {
+  /** Base path for auth routes (default: '/auth/v1') */
+  basePath?: string;
+  /** Session duration in seconds (default: 3600) */
+  sessionDuration?: number;
+}
+
+/**
  * GoTrue session response format
  */
 export interface GoTrueSession {
@@ -56,12 +66,7 @@ export interface GoTrueUser {
 export function mountGoTrueRoutes(
   app: Hono,
   authProvider: SqliteAuthProvider,
-  options: {
-    /** Base path for auth routes (default: '/auth/v1') */
-    basePath?: string;
-    /** Session duration in seconds (default: 3600) */
-    sessionDuration?: number;
-  } = {}
+  options: GoTrueConfig = {}
 ): void {
   const basePath = options.basePath ?? '/auth/v1';
   const sessionDuration = options.sessionDuration ?? 3600;

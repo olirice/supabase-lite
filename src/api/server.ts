@@ -16,7 +16,7 @@ import type { Context } from 'hono';
 import type Database from 'better-sqlite3';
 import type { DatabaseAdapter } from '../database/index.js';
 import { ApiService, ApiServiceError } from './service.js';
-import type { ApiResponse, ApiError } from './service.js';
+import type { ApiError } from './service.js';
 import { SqliteAuthProvider } from '../auth/provider.js';
 import { SqliteRLSProvider } from '../rls/storage.js';
 import { RLSASTEnforcer } from '../rls/ast-enforcer.js';
@@ -24,8 +24,14 @@ import { anonKeyMiddleware } from '../middleware/anon-key.js';
 import { authContextMiddleware } from '../middleware/auth-context.js';
 import type { ContextRequest } from '../middleware/types.js';
 import type { RequestContext } from '../auth/types.js';
-import { generateAnonKey } from '../auth/jwt.js';
 import { mountGoTrueRoutes } from '../auth/gotrue-adapter.js';
+
+/**
+ * Hono app with auth context in variables
+ */
+type AppVariables = {
+  authContext?: RequestContext;
+};
 
 /**
  * Server configuration
@@ -65,8 +71,8 @@ const SYSTEM_TABLES = new Set([
 /**
  * Create Hono app instance with PostgREST endpoints
  */
-export function createServer(config: ServerConfig): Hono {
-  const app = new Hono();
+export function createServer(config: ServerConfig): Hono<{ Variables: AppVariables }> {
+  const app = new Hono<{ Variables: AppVariables }>();
 
   // Initialize API service
   const service = new ApiService({ db: config.db });
@@ -79,10 +85,13 @@ export function createServer(config: ServerConfig): Hono {
   if (config.auth?.enabled) {
     // Get underlying SQLite database
     const sqliteDb = (config.db as any).db as Database.Database;
-    authProvider = new SqliteAuthProvider(sqliteDb, {
+    const authConfig: { jwtSecret: string; sessionDuration?: number } = {
       jwtSecret: config.auth.jwtSecret,
-      sessionDuration: config.auth.sessionDuration,
-    });
+    };
+    if (config.auth.sessionDuration !== undefined) {
+      authConfig.sessionDuration = config.auth.sessionDuration;
+    }
+    authProvider = new SqliteAuthProvider(sqliteDb, authConfig);
   }
 
   if (config.rls?.enabled) {
@@ -92,7 +101,7 @@ export function createServer(config: ServerConfig): Hono {
   }
 
   // CORS middleware
-  if (config.cors !== false) {
+  if (typeof config.cors !== 'boolean') {
     app.use('/*', cors({
       origin: config.cors?.origin ?? '*',
       credentials: config.cors?.credentials ?? false,
@@ -106,10 +115,13 @@ export function createServer(config: ServerConfig): Hono {
 
   // Mount GoTrue-compatible auth endpoints BEFORE middleware (publicly accessible)
   if (config.auth?.enabled && config.auth.goTrue && authProvider) {
-    mountGoTrueRoutes(app, authProvider, {
+    const goTrueConfig: { basePath?: string; sessionDuration?: number } = {
       basePath: '/auth/v1',
-      sessionDuration: config.auth.sessionDuration,
-    });
+    };
+    if (config.auth.sessionDuration !== undefined) {
+      goTrueConfig.sessionDuration = config.auth.sessionDuration;
+    }
+    mountGoTrueRoutes(app as any, authProvider, goTrueConfig);
   }
 
   // Anon key middleware (if auth is enabled)
@@ -128,6 +140,7 @@ export function createServer(config: ServerConfig): Hono {
       }
 
       await next();
+      return undefined;
     });
   }
 
@@ -233,12 +246,14 @@ export function createServer(config: ServerConfig): Hono {
       const queryString = c.req.url.split('?')[1] ?? '';
 
       // Build execution options with RLS enforcement if enabled
-      const executionOptions = config.rls?.enabled && rlsEnforcer
-        ? {
-            rlsEnforcer,
-            requestContext: c.get('authContext') as RequestContext | undefined,
-          }
-        : undefined;
+      let executionOptions: { rlsEnforcer: RLSASTEnforcer; requestContext?: RequestContext } | undefined;
+      if (config.rls?.enabled && rlsEnforcer) {
+        const ctx = c.get('authContext') as RequestContext | undefined;
+        executionOptions = { rlsEnforcer };
+        if (ctx !== undefined) {
+          executionOptions.requestContext = ctx;
+        }
+      }
 
       const response = await service.execute(
         {
@@ -295,12 +310,14 @@ export function createServer(config: ServerConfig): Hono {
       }
 
       // Build execution options with RLS enforcement if enabled
-      const executionOptions = config.rls?.enabled && rlsEnforcer
-        ? {
-            rlsEnforcer,
-            requestContext: c.get('authContext') as RequestContext | undefined,
-          }
-        : undefined;
+      let executionOptions: { rlsEnforcer: RLSASTEnforcer; requestContext?: RequestContext } | undefined;
+      if (config.rls?.enabled && rlsEnforcer) {
+        const ctx = c.get('authContext') as RequestContext | undefined;
+        executionOptions = { rlsEnforcer };
+        if (ctx !== undefined) {
+          executionOptions.requestContext = ctx;
+        }
+      }
 
       // Execute INSERT
       const response = await service.insert(table, body, executionOptions);
@@ -372,12 +389,14 @@ export function createServer(config: ServerConfig): Hono {
       }
 
       // Build execution options with RLS enforcement if enabled
-      const executionOptions = config.rls?.enabled && rlsEnforcer
-        ? {
-            rlsEnforcer,
-            requestContext: c.get('authContext') as RequestContext | undefined,
-          }
-        : undefined;
+      let executionOptions: { rlsEnforcer: RLSASTEnforcer; requestContext?: RequestContext } | undefined;
+      if (config.rls?.enabled && rlsEnforcer) {
+        const ctx = c.get('authContext') as RequestContext | undefined;
+        executionOptions = { rlsEnforcer };
+        if (ctx !== undefined) {
+          executionOptions.requestContext = ctx;
+        }
+      }
 
       // Execute UPDATE
       const response = await service.update(
@@ -426,12 +445,14 @@ export function createServer(config: ServerConfig): Hono {
       const queryString = c.req.url.split('?')[1] ?? '';
 
       // Build execution options with RLS enforcement if enabled
-      const executionOptions = config.rls?.enabled && rlsEnforcer
-        ? {
-            rlsEnforcer,
-            requestContext: c.get('authContext') as RequestContext | undefined,
-          }
-        : undefined;
+      let executionOptions: { rlsEnforcer: RLSASTEnforcer; requestContext?: RequestContext } | undefined;
+      if (config.rls?.enabled && rlsEnforcer) {
+        const ctx = c.get('authContext') as RequestContext | undefined;
+        executionOptions = { rlsEnforcer };
+        if (ctx !== undefined) {
+          executionOptions.requestContext = ctx;
+        }
+      }
 
       // Execute DELETE
       const response = await service.delete(
