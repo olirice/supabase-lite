@@ -2,7 +2,7 @@
 
 **⚠️ Experimental POC / Toy Project - Not Production Ready**
 
-A partially API-compatible implementation of a subset of **Supabase** for **SQLite/D1**. This proof-of-concept implements PostgREST-style queries + Auth/RLS, allowing Supabase client libraries to work (with limitations). Optimized for **Cloudflare Workers** with **D1**, built with strict TypeScript and comprehensive test coverage.
+A partially API-compatible implementation of a subset of **Supabase** for **SQLite/D1**. This proof-of-concept implements PostgREST-style queries + Auth/RLS, allowing Supabase client libraries to work (with limitations). Optimized for **Cloudflare Workers** with **D1**.
 
 **What works:**
 - PostgREST-compatible query syntax (filtering, ordering, embedding)
@@ -32,7 +32,7 @@ curl "http://localhost:3000/posts" \
 
 ## Features
 
-### ✅ PostgREST-Compatible Query Syntax
+### PostgREST-Compatible Query Syntax
 
 ```bash
 # Basic queries
@@ -52,7 +52,7 @@ GET /users?and=(age.gte.18,active.eq.true)
 GET /users?or=(status.eq.active,status.eq.pending)
 ```
 
-### ✅ Resource Embedding (Relationships)
+### Resource Embedding (Relationships)
 
 ```bash
 # Many-to-one
@@ -68,7 +68,7 @@ GET /posts?select=title,author(name,posts(title))
 GET /posts?select=id,creator:author(name)
 ```
 
-### ✅ Authentication & Row-Level Security (RLS)
+### Authentication & Row-Level Security (RLS)
 
 ```typescript
 // Enable authentication and RLS
@@ -480,212 +480,3 @@ npm run build
 ```bash
 npm run type-check
 ```
-
----
-
-## Deployment
-
-### Cloudflare Workers
-
-**wrangler.toml**:
-```toml
-name = "supabase-lite"
-main = "src/workers/index.ts"
-compatibility_date = "2024-01-01"
-
-[[d1_databases]]
-binding = "DB"
-database_name = "supabase-db"
-database_id = "your-database-id"
-```
-
-**Deploy**:
-```bash
-# Create D1 database
-wrangler d1 create supabase-db
-
-# Run migrations
-wrangler d1 execute supabase-db --file=./migrations/schema.sql
-
-# Deploy
-wrangler deploy
-```
-
-### Node.js
-
-```typescript
-import { startServer } from 'supabase-lite/local';
-
-await startServer({
-  port: process.env.PORT || 3000,
-  databasePath: process.env.DATABASE_PATH || 'data.db',
-  auth: {
-    enabled: true,
-    jwtSecret: process.env.JWT_SECRET,
-    goTrue: true,
-  },
-  rls: {
-    enabled: true,
-  },
-});
-```
-
-**Environment Variables:**
-```bash
-PORT=3000
-DATABASE_PATH=./data.db
-JWT_SECRET=your-secret-key-min-32-chars
-```
-
----
-
-## Testing
-
-### Test Philosophy
-
-**Complete Isolation** - Each test creates its own database:
-
-```typescript
-test('GET /users - all rows', async () => {
-  // Create isolated database
-  const adapter = createTestDb(
-    `CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)`,
-    `INSERT INTO users (id, name) VALUES (1, 'Alice')`
-  );
-
-  // Create server
-  const app = createServer({ db: adapter });
-
-  // Make request
-  const res = await app.request('/users');
-
-  // Verify
-  expect(res.status).toBe(200);
-  expect(await res.json()).toHaveLength(1);
-
-  // Cleanup
-  adapter.close();
-});
-```
-
-**Benefits:**
-- Tests can run in parallel
-- No shared state
-- Clear test intent
-- Easy to debug
-
-### Test Statistics
-
-- **182 total tests** (all passing)
-  - 102 parser tests
-  - 62 integration tests
-  - 18 E2E tests
-- **~560ms** total execution time
-- **100% pass rate**
-
----
-
-## Performance
-
-### Benchmarks
-
-| Operation | Time | Notes |
-|-----------|------|-------|
-| Simple query | ~2ms | SELECT with filter |
-| Resource embedding | ~5ms | Many-to-one join |
-| Nested embedding | ~8ms | Two-level nesting |
-| Schema introspection | ~5ms | Cached after first request |
-
-**Environment**: M1 Mac, in-memory SQLite
-
-### Optimizations
-
-- Schema caching (enabled by default)
-- Prepared statements
-- Minimal JSON parsing overhead
-- Zero-copy where possible
-
----
-
-## Roadmap
-
-### Phase 1 ✅ Complete
-- PostgREST query parser
-- 102 parser tests
-
-### Phase 2 ✅ Complete
-- SQLite-compatible adaptations
-- Pattern quantifiers
-- IS operator extensions
-
-### Phase 3 ✅ Complete
-- SQL compiler
-- 51 integration tests
-- Parameterized queries
-
-### Phase 4 ✅ Complete
-- Schema introspection
-- Resource embedding
-- 11 integration tests
-
-### Phase 5 ✅ Complete
-- Database adapter abstraction
-- REST API server (Hono)
-- 18 E2E tests
-- Cloudflare Workers support
-
-### Phase 6 ✅ Complete
-- JWT-based authentication
-- GoTrue-compatible auth endpoints
-- Row-Level Security (RLS) policies
-- Type-safe policy builder API
-- Auth context injection middleware
-
-### Future Phases
-
-- **Phase 7**: Mutations (INSERT, UPDATE, DELETE)
-- **Phase 8**: Advanced filtering (full-text search, JSON operators)
-- **Phase 9**: Performance optimizations (caching, connection pooling)
-- **Phase 10**: Additional adapters (Postgres, Turso, PGlite)
-
----
-
-## Contributing
-
-Contributions welcome! Please:
-
-1. Write tests first (TDD)
-2. Maintain 100% pass rate
-3. Follow TypeScript strict mode
-4. Update documentation
-
----
-
-## License
-
-MIT
-
----
-
-## Acknowledgments
-
-Built with:
-- **[Hono](https://hono.dev/)** - Universal web framework
-- **[better-sqlite3](https://github.com/WiseLibs/better-sqlite3)** - Fast SQLite for Node.js
-- **[Vitest](https://vitest.dev/)** - Fast unit testing
-- **[TypeScript](https://www.typescriptlang.org/)** - Type safety
-
-Inspired by:
-- **[PostgREST](https://postgrest.org/)** - RESTful API for PostgreSQL
-- **[Supabase](https://supabase.com/)** - Open source Firebase alternative
-
----
-
-## Documentation
-
-- [Phase 1: Parser](./PHASE_1_PARSER_COMPLETE.md)
-- [Phase 2: SQLite Adaptations](./PHASE_2_SQLITE_ADAPTATIONS.md)
-- [Phase 3: SQL Compiler](./PHASE_3_COMPILER_COMPLETE.md)
-- [Phase 4: Resource Embedding](./PHASE_4_RESOURCE_EMBEDDING_COMPLETE.md)
-- [Phase 5: REST API Server](./PHASE_5_REST_API_COMPLETE.md)
-
