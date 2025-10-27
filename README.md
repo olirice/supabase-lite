@@ -51,23 +51,6 @@ GET /posts?select=title,author(name,posts(title))
 GET /posts?select=id,creator:author(name)
 ```
 
-### ✅ Universal Deployment
-
-The same codebase works on:
-- **Cloudflare Workers** (with D1)
-- **Node.js** (with better-sqlite3)
-- **Bun, Deno** (via adapters)
-
-### ✅ Production-Ready
-
-- **182 tests** with 100% pass rate
-- **Strict TypeScript** with zero `any` types
-- **E2E tests** with complete isolation
-- **Modular architecture** for easy extension
-- **Error handling** with proper HTTP status codes
-- **CORS support**
-- **Health check endpoint**
-
 ---
 
 ## Quick Start
@@ -96,21 +79,6 @@ await adapter.exec(`
     email TEXT NOT NULL
   );
 `);
-```
-
-### Cloudflare Workers
-
-```typescript
-import { createServer } from 'postgrest-lite/api';
-import { D1Adapter } from 'postgrest-lite/database';
-
-export default {
-  async fetch(request, env, ctx) {
-    const adapter = new D1Adapter(env.DB);
-    const app = createServer({ db: adapter });
-    return app.fetch(request, env, ctx);
-  },
-};
 ```
 
 ---
