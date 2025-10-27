@@ -1,0 +1,162 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Build output
+dist/
+build/
+out/
+*.tsbuildinfo
+
+# TypeScript compiled files (keep source .ts files)
+*.js
+*.js.map
+*.d.ts
+# Exception: keep config and test files
+!vitest.config.js
+!jest.config.js
+!*.config.js
+!**/*.test.js
+!**/*.spec.js
+
+# Testing
+coverage/
+.nyc_output/
+*.lcov
+.vitest/
+
+# Environment
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+.env*.local
+
+# IDE & Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+.vs/
+*.sublime-project
+*.sublime-workspace
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+*.backup
+*.old
+
+# Logs
+logs/
+*.log
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# SQLite databases (for testing)
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-shm
+*.db-wal
+
+# Package manager files
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+.yarn/
+.pnpm-store/
+
+# Cache directories
+.cache/
+.parcel-cache/
+.next/
+.nuxt/
+.turbo/
+.eslintcache
+.stylelintcache
+
+# Build tool cache
+.rpt2_cache/
+.rts2_cache_cjs/
+.rts2_cache_es/
+.rts2_cache_umd/
+
+# Optional npm cache directory
+.npm
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# Serverless directories
+.serverless/
+
+# FuseBox cache
+.fusebox/
+
+# DynamoDB Local files
+.dynamodb/
+
+# TernJS port file
+.tern-port
+
+# Stores VSCode versions used for testing
+.vscode-test
+
+# Deployment platforms
+.vercel/
+.netlify/
+
+# Documentation generated files
+docs/.vitepress/cache
+docs/.vitepress/dist
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Planning and development documentation (keep only README.md)
+CLAUDE.md
+IMPLEMENTATION_SUMMARY.md
+PHASE_*.md
+POSTGREST_*.md
+PROJECT_PLAN.md
+REMAINING_FEATURES.md
+SQLITE_COMPATIBLE_ROADMAP.md
+TDD_IMPLEMENTATION_SUMMARY.md
+WITH_CHECK_IMPLEMENTATION.md
+*_SUMMARY.md
+*_COMPLETE.md
