@@ -228,6 +228,26 @@ export function createServer(config: ServerConfig): Hono<{ Variables: AppVariabl
         }, 400);
       }
     });
+
+    // POST /auth/logout
+    app.post('/auth/logout', async (c) => {
+      // Get JWT from Authorization header
+      const authHeader = c.req.header('Authorization');
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return c.json({
+          message: 'Missing or invalid authorization token',
+          code: 'UNAUTHORIZED',
+        }, 401);
+      }
+
+      const token = authHeader.substring(7); // Remove 'Bearer '
+
+      // Invalidate the session (idempotent - doesn't throw if token doesn't exist)
+      await authProvider!.logout(token);
+
+      // Return 204 No Content (successful logout)
+      return new Response(null, { status: 204 });
+    });
   }
 
   // Helper function to create table query handler

@@ -228,26 +228,25 @@ export function mountGoTrueRoutes(
 
       const token = authHeader.substring(7); // Remove 'Bearer '
 
-      // Verify token and get user
-      const payload = await authProvider.verifyToken(token);
+      // Verify session (checks both JWT and database)
+      const user = await authProvider.verifySession(token);
 
-      if (!payload || !payload.sub) {
+      if (!user) {
         return c.json(
           {
             error: 'invalid_token',
-            error_description: 'Invalid token',
+            error_description: 'Invalid or expired token',
           },
           401
         );
       }
 
-      // Get user details (we only have ID from token)
-      // In a real implementation, you'd fetch from database
-      const user: GoTrueUser = {
-        id: payload.sub,
+      // Format as GoTrue user
+      const goTrueUser: GoTrueUser = {
+        id: user.id,
         aud: 'authenticated',
-        role: payload.role || 'authenticated',
-        email: payload.sub, // Using ID as email for demo
+        role: 'authenticated',
+        email: user.username, // Using username as email
         confirmed_at: new Date().toISOString(),
         app_metadata: {},
         user_metadata: {},
@@ -255,7 +254,7 @@ export function mountGoTrueRoutes(
         updated_at: new Date().toISOString(),
       };
 
-      return c.json({ user }, 200);
+      return c.json({ user: goTrueUser }, 200);
     } catch (error: any) {
       return c.json(
         {
@@ -265,6 +264,35 @@ export function mountGoTrueRoutes(
         401
       );
     }
+  });
+
+  /**
+   * POST /auth/v1/logout
+   * Sign out the current user (invalidate session)
+   *
+   * Headers: Authorization: Bearer <token>
+   * Response: 204 No Content
+   */
+  app.post(`${basePath}/logout`, async (c: Context) => {
+    // Get JWT from Authorization header
+    const authHeader = c.req.header('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return c.json(
+        {
+          error: 'invalid_token',
+          error_description: 'Invalid or missing authorization token',
+        },
+        401
+      );
+    }
+
+    const token = authHeader.substring(7); // Remove 'Bearer '
+
+    // Invalidate the session (idempotent - doesn't throw if token doesn't exist)
+    await authProvider.logout(token);
+
+    // Return 204 No Content (successful logout)
+    return new Response(null, { status: 204 });
   });
 }
 

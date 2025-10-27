@@ -6,7 +6,11 @@ A partially API-compatible implementation of a subset of **Supabase** for **SQLi
 
 **What works:**
 - PostgREST-compatible query syntax (filtering, ordering, embedding)
+- Single object responses (`single()`, `maybeSingle()`)
+- Count with Content-Range headers (`count=exact`)
+- HEAD requests for metadata-only queries
 - JWT authentication with GoTrue-compatible endpoints
+- Sign out / session invalidation
 - Row-Level Security (RLS) policies
 - Runs on SQLite (Node.js) and D1 (Cloudflare Workers)
 

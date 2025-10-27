@@ -1,8 +1,9 @@
 # Supabase API Gap Analysis
 
-This document analyzes the API surface area of the official @supabase/supabase-js client library and identifies which routes and features are currently supported by postgrest-lite versus what's missing.
+This document analyzes the API surface area of the official @supabase/supabase-js client library and identifies which routes and features are currently supported by supabase-lite versus what's missing.
 
 **Analysis Date**: 2025-10-27
+**Last Updated**: 2025-10-27
 **Packages Analyzed**:
 - @supabase/postgrest-js (PostgREST database operations)
 - @supabase/auth-js (GoTrue authentication)
@@ -54,10 +55,25 @@ This document analyzes the API surface area of the official @supabase/supabase-j
   - With filters
   - Return deleted rows with `select=*`
 
+- ✅ **Count with Content-Range** - `Prefer: count=exact`
+  - Exact count via Content-Range header: `0-24/3573458`
+  - Works with all queries (filters, ordering, embedding)
+  - Essential for pagination UIs
+
+- ✅ **Single Object Response** - `single()` and `maybeSingle()`
+  - Via `Accept: application/vnd.pgrst.object+json` header
+  - `single()`: Returns object (not array), errors if 0 or >1 results
+  - `maybeSingle()`: Returns object or null, errors if >1 results
+  - Works with all query features
+
+- ✅ **HEAD Requests** - `HEAD /:table`
+  - Get count/metadata without fetching data
+  - Returns Content-Range header with empty body
+  - Efficient for count-only queries
+
 #### Partially Supported
 - ⚠️ **Aggregates** - Limited support
-  - COUNT is supported via array length in response
-  - No explicit `count=exact|planned|estimated` header support yet
+  - COUNT is supported via `count=exact` and array length
   - No SUM, AVG, MIN, MAX aggregate functions
 
 ### 1.2 Auth Routes (via `supabase.auth`)
@@ -95,29 +111,22 @@ No storage routes are currently supported.
 #### Response Format Modifiers
 | Feature | Endpoint/Header | Complexity | Importance | Description |
 |---------|----------------|------------|------------|-------------|
-| **single()** | Expect: application/vnd.pgrst.object+json | Low | High | Return single object instead of array. Error if 0 or >1 rows |
-| **maybeSingle()** | Expect: application/vnd.pgrst.object+json | Low | High | Return single object or null. Error if >1 rows |
 | **csv()** | Accept: text/csv | Medium | Low | Return results as CSV format |
 | **geojson()** | Accept: application/geo+json | Medium | Low | Return results as GeoJSON |
 | **explain()** | Accept: application/vnd.pgrst.plan+json | High | Low | Return query execution plan (requires db_plan_enabled) |
 
 **Implementation Notes**:
-- `single()` and `maybeSingle()` are commonly used and should be prioritized
-- These work via HTTP Accept/Expect headers that postgrest-js sends
 - CSV/GeoJSON are niche features but straightforward to add
 
 #### Count Options
 | Feature | Header | Complexity | Importance | Description |
 |---------|--------|------------|------------|-------------|
-| **count=exact** | Prefer: count=exact | Medium | High | Return exact count via Content-Range header |
 | **count=planned** | Prefer: count=planned | Medium | Medium | Return estimated count from query planner |
 | **count=estimated** | Prefer: count=estimated | Medium | Low | Use exact for small, planned for large |
 
 **Implementation Notes**:
-- Requires Content-Range header: `Content-Range: 0-24/3573458`
-- Critical for pagination UIs
-- SQLite can use `COUNT(*) OVER()` window function for exact count
 - Planned count would use SQLite's `sqlite_stat1` table
+- Low priority since exact count is already supported
 
 ### 2.2 Advanced Filtering (High Priority)
 
@@ -252,17 +261,6 @@ No storage routes are currently supported.
 - SQLite doesn't have schemas in the PostgreSQL sense
 - Could potentially support ATTACH-ed databases
 - Very low priority for SQLite
-
-### 2.9 HEAD Requests
-
-| Feature | Endpoint | Complexity | Importance | Description |
-|---------|----------|------------|------------|-------------|
-| **head option** | HEAD /:table | Low | Medium | Get count/metadata without data |
-
-**Implementation Notes**:
-- Used with `count=exact` to get total count without fetching rows
-- Returns empty body with Content-Range header
-- Simple to implement
 
 ---
 
