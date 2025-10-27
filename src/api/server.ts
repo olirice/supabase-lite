@@ -245,11 +245,18 @@ export function createServer(config: ServerConfig): Hono<{ Variables: AppVariabl
 
       const queryString = c.req.url.split('?')[1] ?? '';
 
-      // Parse Prefer header for count option
+      // Parse Accept header for single object response
+      const acceptHeader = c.req.header('Accept') ?? '';
+      const wantsSingle = acceptHeader.includes('application/vnd.pgrst.object+json');
+
+      // Parse Prefer header for count option and single/maybeSingle
       const preferHeader = c.req.header('Prefer') ?? '';
       const includeCount = preferHeader.includes('count=exact') ||
                           preferHeader.includes('count=planned') ||
                           preferHeader.includes('count=estimated');
+
+      const preferSingle = wantsSingle || preferHeader.includes('return=representation-single');
+      const preferMaybeSingle = preferHeader.includes('return=representation-maybe-single');
 
       // Build execution options with RLS enforcement if enabled
       let executionOptions: { rlsEnforcer?: RLSASTEnforcer; requestContext?: RequestContext; includeCount?: boolean } = {};
@@ -274,7 +281,61 @@ export function createServer(config: ServerConfig): Hono<{ Variables: AppVariabl
         executionOptions
       );
 
-      // Add Content-Range header if count was requested
+      // Handle single/maybeSingle response
+      if (preferSingle || preferMaybeSingle) {
+        const rowCount = response.data.length;
+
+        // single() requires exactly 1 row
+        if (preferSingle) {
+          if (rowCount === 0) {
+            return c.json({
+              message: 'Query returned 0 rows',
+              code: 'PGRST116',
+              details: 'Results contain 0 rows, application/vnd.pgrst.object+json requires 1 row',
+              hint: null
+            }, 406);
+          }
+          if (rowCount > 1) {
+            return c.json({
+              message: 'Query returned multiple rows',
+              code: 'PGRST116',
+              details: `Results contain ${rowCount} rows, application/vnd.pgrst.object+json requires 1 row`,
+              hint: null
+            }, 406);
+          }
+        }
+
+        // maybeSingle() allows 0 or 1 row, errors on >1
+        if (preferMaybeSingle) {
+          if (rowCount === 0) {
+            // Return null for zero rows
+            const jsonResponse = c.json(null);
+            if (includeCount && response.totalCount !== undefined) {
+              const contentRange = buildContentRange(response.data.length, response.totalCount, queryString);
+              jsonResponse.headers.set('Content-Range', contentRange);
+            }
+            return jsonResponse;
+          }
+          if (rowCount > 1) {
+            return c.json({
+              message: 'Query returned multiple rows',
+              code: 'PGRST116',
+              details: `Results contain ${rowCount} rows, return=representation-maybe-single requires 0 or 1 row`,
+              hint: null
+            }, 406);
+          }
+        }
+
+        // Return single object (not array)
+        const jsonResponse = c.json(response.data[0]);
+        if (includeCount && response.totalCount !== undefined) {
+          const contentRange = buildContentRange(response.data.length, response.totalCount, queryString);
+          jsonResponse.headers.set('Content-Range', contentRange);
+        }
+        return jsonResponse;
+      }
+
+      // Normal array response
       const jsonResponse = c.json(response.data);
       if (includeCount && response.totalCount !== undefined) {
         const contentRange = buildContentRange(response.data.length, response.totalCount, queryString);
@@ -305,11 +366,18 @@ export function createServer(config: ServerConfig): Hono<{ Variables: AppVariabl
 
       const queryString = c.req.url.split('?')[1] ?? '';
 
-      // Parse Prefer header for count option
+      // Parse Accept header for single object response
+      const acceptHeader = c.req.header('Accept') ?? '';
+      const wantsSingle = acceptHeader.includes('application/vnd.pgrst.object+json');
+
+      // Parse Prefer header for count option and single/maybeSingle
       const preferHeader = c.req.header('Prefer') ?? '';
       const includeCount = preferHeader.includes('count=exact') ||
                           preferHeader.includes('count=planned') ||
                           preferHeader.includes('count=estimated');
+
+      const preferSingle = wantsSingle || preferHeader.includes('return=representation-single');
+      const preferMaybeSingle = preferHeader.includes('return=representation-maybe-single');
 
       // Build execution options with RLS enforcement if enabled
       let executionOptions: { rlsEnforcer?: RLSASTEnforcer; requestContext?: RequestContext; includeCount?: boolean } = {};
@@ -333,6 +401,41 @@ export function createServer(config: ServerConfig): Hono<{ Variables: AppVariabl
         },
         executionOptions
       );
+
+      // Handle single/maybeSingle cardinality checks (HEAD has same rules as GET)
+      if (preferSingle || preferMaybeSingle) {
+        const rowCount = response.data.length;
+
+        // single() requires exactly 1 row
+        if (preferSingle && rowCount !== 1) {
+          const errorMessage = rowCount === 0
+            ? 'Results contain 0 rows, application/vnd.pgrst.object+json requires 1 row'
+            : `Results contain ${rowCount} rows, application/vnd.pgrst.object+json requires 1 row`;
+
+          return new Response(JSON.stringify({
+            message: rowCount === 0 ? 'Query returned 0 rows' : 'Query returned multiple rows',
+            code: 'PGRST116',
+            details: errorMessage,
+            hint: null
+          }), {
+            status: 406,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+
+        // maybeSingle() allows 0 or 1 row, errors on >1
+        if (preferMaybeSingle && rowCount > 1) {
+          return new Response(JSON.stringify({
+            message: 'Query returned multiple rows',
+            code: 'PGRST116',
+            details: `Results contain ${rowCount} rows, return=representation-maybe-single requires 0 or 1 row`,
+            hint: null
+          }), {
+            status: 406,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+      }
 
       // Create response with headers but no body
       const headers: Record<string, string> = {
