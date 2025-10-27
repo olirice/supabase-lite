@@ -134,7 +134,7 @@ export class ApiService {
     return {
       data,
       count: data.length,
-      totalCount,
+      ...(totalCount !== undefined ? { totalCount } : {}),
     };
   }
 
@@ -442,7 +442,7 @@ export class ApiService {
   private async getTotalCount(
     ast: any,
     schema: DatabaseSchema,
-    options?: ExecutionOptions
+    _options?: ExecutionOptions
   ): Promise<number> {
     // Create a count query by removing limit/offset and select
     const countAst = {
