@@ -275,14 +275,16 @@ describe('Integration - Logical Operators and Patterns', () => {
 
       const result = testDb.db.prepare(compiled.sql).all(...compiled.params);
 
-      // Should exclude names containing both 'a' and 'e'
+      // Should exclude names containing both 'a' and 'e' (case-sensitive, as in Postgres)
       // Jane Doe has both
       // Charlie Wilson has both
+      // Alice Brown is kept: it has an 'e' but only a capital 'A'
       expect(result.length).toBeGreaterThan(0);
       expect(result.every((row: any) => {
-        const name = row.name.toLowerCase();
+        const name: string = row.name;
         return !(name.includes('a') && name.includes('e'));
       })).toBe(true);
+      expect(result.map((row: any) => row.name)).toContain('Alice Brown');
     });
   });
 

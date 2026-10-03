@@ -252,7 +252,12 @@ describe('E2E - Supabase Client Compatibility', () => {
         .order('age', { ascending: false });
 
       expect(error).toBeNull();
-      expect(data?.[0]?.age).toBeGreaterThanOrEqual(data?.[1]?.age || 0);
+      // Postgres sorts NULL first for DESC (an earlier test inserts Dave with age NULL)
+      const ages = (data ?? []).map((row: any) => row.age);
+      const firstNonNull = ages.findIndex((age) => age !== null);
+      expect(ages.slice(firstNonNull).every((age) => age !== null)).toBe(true);
+      const nonNull = ages.slice(firstNonNull) as number[];
+      expect(nonNull).toEqual([...nonNull].sort((a, b) => b - a));
     });
 
     test('limit results', async () => {

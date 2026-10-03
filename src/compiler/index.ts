@@ -432,7 +432,7 @@ export class SQLCompiler {
     let orderClause = '';
     if (embedding.order && embedding.order.length > 0) {
       const orderParts = embedding.order.map(order =>
-        `${this.escapeIdentifier(embeddedTable)}.${this.escapeIdentifier(order.column)} ${order.direction.toUpperCase()}`
+        this.compileOrderTerm(`${this.escapeIdentifier(embeddedTable)}.${this.escapeIdentifier(order.column)}`, order)
       );
       orderClause = `ORDER BY ${orderParts.join(', ')}`;
     }
@@ -517,7 +517,7 @@ export class SQLCompiler {
     let orderClause = '';
     if (embedding.order && embedding.order.length > 0) {
       const orderParts = embedding.order.map(order =>
-        `${this.escapeIdentifier(order.column)} ${order.direction.toUpperCase()}`
+        this.compileOrderTerm(this.escapeIdentifier(order.column), order)
       );
       orderClause = `ORDER BY ${orderParts.join(', ')}`;
     }
@@ -780,8 +780,9 @@ export class SQLCompiler {
         return { sql: `${column} <= ${this.addParam(value)}`, negated: false };
 
       case 'like':
+        // Postgres LIKE is case-sensitive; SQLite LIKE is not. GLOB is, so translate.
         return {
-          sql: `${column} LIKE ${this.addParam(this.convertPattern(value as string))}`,
+          sql: `${column} GLOB ${this.addParam(this.likeToGlob(value as string))}`,
           negated: false,
         };
 
@@ -900,19 +901,19 @@ export class SQLCompiler {
    * Compile ORDER BY clause
    */
   private compileOrder(order: readonly OrderNode[]): string {
-    const orderStrs = order.map((node) => {
-      const column = this.escapeIdentifier(node.column);
-      const direction = node.direction.toUpperCase();
+    return order.map((node) => this.compileOrderTerm(this.escapeIdentifier(node.column), node)).join(', ');
+  }
 
-      if (node.nulls !== undefined) {
-        const nullsClause = node.nulls === 'first' ? 'NULLS FIRST' : 'NULLS LAST';
-        return `${column} ${direction} ${nullsClause}`;
-      }
-
-      return `${column} ${direction}`;
-    });
-
-    return orderStrs.join(', ');
+  /**
+   * Compile one ORDER BY term with an explicit NULLS position.
+   *
+   * Postgres sorts NULL as larger than any value, so without nullsfirst/nullslast
+   * NULLs come last for ASC and first for DESC. SQLite does the opposite, so the
+   * PostgreSQL default is written out explicitly.
+   */
+  private compileOrderTerm(columnSql: string, node: OrderNode): string {
+    const nulls = node.nulls ?? (node.direction === 'asc' ? 'last' : 'first');
+    return `${columnSql} ${node.direction.toUpperCase()} NULLS ${nulls.toUpperCase()}`;
   }
 
   /**
@@ -945,6 +946,33 @@ export class SQLCompiler {
   private convertPattern(pattern: string): string {
     // Replace * with % for SQL LIKE
     return pattern.replace(/\*/g, '%');
+  }
+
+  /**
+   * Convert a PostgREST LIKE pattern to an equivalent, case-sensitive SQLite GLOB pattern.
+   *
+   *   % or *  -> *   (any run of characters)
+   *   _       -> ?   (exactly one character)
+   *   \x      -> x as a literal (Postgres' default LIKE escape)
+   *
+   * Characters that are special to GLOB (* ? [) are bracketed when meant literally.
+   */
+  private likeToGlob(pattern: string): string {
+    const literal = (ch: string) => (ch === '*' || ch === '?' || ch === '[' ? `[${ch}]` : ch);
+    let out = '';
+    for (let i = 0; i < pattern.length; i++) {
+      const ch = pattern[i]!;
+      if (ch === '\\' && i + 1 < pattern.length) {
+        out += literal(pattern[++i]!);
+      } else if (ch === '%' || ch === '*') {
+        out += '*';
+      } else if (ch === '_') {
+        out += '?';
+      } else {
+        out += literal(ch);
+      }
+    }
+    return out;
   }
 
   /**

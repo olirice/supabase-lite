@@ -483,7 +483,8 @@ describe('RLS AST Enforcer', () => {
 
       const sql = await getFinalSQL(url, context);
 
-      expect(sql).toContain('LIKE');
+      // like is case-sensitive in Postgres, so it compiles to SQLite GLOB
+      expect(sql).toContain('GLOB');
     });
 
     test('Compiles ILIKE operator (treated as LIKE in SQLite)', async () => {
